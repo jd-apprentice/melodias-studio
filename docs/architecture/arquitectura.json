@@ -10,7 +10,7 @@
       "url": "https://github.com/jd-apprentice/melodias-studio",
       "provider": "github",
       "link_mode": "web",
-      "revision": "3693af844dbaca83132cd18150b2ef254f30baf9"
+      "revision": "54b0ba4efaac8c095aa3856c00bdc7b46294fbcb"
     },
     "legend": {
       "entries": {
@@ -37,14 +37,14 @@
       "sources": [
         {
           "path": "src/app.rs",
-          "line": 22,
-          "end_line": 35,
+          "line": 36,
+          "end_line": 52,
           "label": "input fields"
         },
         {
           "path": "src/app.rs",
-          "line": 55,
-          "end_line": 72,
+          "line": 73,
+          "end_line": 92,
           "label": "start needs reference and vibe"
         }
       ]
@@ -65,14 +65,14 @@
       "sources": [
         {
           "path": "src/app.rs",
-          "line": 164,
-          "end_line": 209,
+          "line": 249,
+          "end_line": 298,
           "label": "key loop"
         },
         {
           "path": "src/app.rs",
-          "line": 211,
-          "end_line": 471,
+          "line": 300,
+          "end_line": 333,
           "label": "screen layout"
         }
       ]
@@ -81,7 +81,7 @@
       "id": "pipeline",
       "type": "backend",
       "label": "pipeline.rs",
-      "sublabel": "9 sequential stages",
+      "sublabel": "10 stages · pools + review",
       "pos": [
         470,
         270
@@ -94,13 +94,13 @@
         {
           "path": "src/pipeline.rs",
           "line": 10,
-          "end_line": 20,
+          "end_line": 21,
           "label": "stage order"
         },
         {
           "path": "src/pipeline.rs",
-          "line": 82,
-          "end_line": 236,
+          "line": 106,
+          "end_line": 403,
           "label": "run()"
         }
       ]
@@ -178,7 +178,7 @@
         {
           "path": "src/clients.rs",
           "line": 86,
-          "end_line": 125,
+          "end_line": 128,
           "label": "image prompt"
         },
         {
@@ -205,8 +205,8 @@
       "sources": [
         {
           "path": "src/clients.rs",
-          "line": 164,
-          "end_line": 185,
+          "line": 185,
+          "end_line": 206,
           "label": "image generation"
         },
         {
@@ -233,8 +233,8 @@
       "sources": [
         {
           "path": "src/clients.rs",
-          "line": 128,
-          "end_line": 162,
+          "line": 139,
+          "end_line": 183,
           "label": "take with reference"
         },
         {
@@ -267,9 +267,9 @@
       "sources": [
         {
           "path": "src/pipeline.rs",
-          "line": 197,
-          "end_line": 228,
-          "label": "copy and metadata"
+          "line": 321,
+          "end_line": 396,
+          "label": "master and metadata"
         }
       ]
     }
@@ -366,13 +366,13 @@
     },
     {
       "dot": "emerald",
-      "title": "Master and output",
+      "title": "Pools, review and output",
       "items": [
-        "audio.mp3, 320 kbps, -15 LUFS, 1.5 s fade-in and 3 s fade-out",
-        "Every track is instrumental; vocals are in the negative prompt",
-        "The PNG is validated by reading its header",
-        "meta.json stores the seed, prompt and parameters",
-        "work/ keeps the source, reference and take"
+        "candidates/ keeps N images and N audio drafts",
+        "3 images at 20 steps and 3 drafts at 60 s by default",
+        "The review pauses the run for a manual pick",
+        "meta.json stores candidates, seeds and the selected pair",
+        "The chosen draft seed drives the full 210 s take"
       ]
     },
     {
