@@ -46,6 +46,11 @@
 # video_project = "video"
 # image_steps = 20
 # image_seed = 42
+# Optional reference library. It is a local folder or a mounted share; the app
+# never mounts it or copies it into the repository. Subfolders are concepts.
+# image_references = "/path/to/reference-thumbnails"
+# image_reference_count = 3
+# image_reference_concept = "battle"
 # candidates = 3
 # Deterministic retry rounds. 2 by default; the image budget caps at 2 and the
 # audio budget at 1. Set 0 to disable the loop.

@@ -7,6 +7,7 @@ mod history;
 mod judge;
 mod media;
 mod pipeline;
+mod references;
 mod retry;
 mod score;
 mod video;
@@ -513,6 +514,15 @@ fn run_image(cfg: config::Config, args: &[String]) -> io::Result<()> {
     let seed = entry
         .and_then(|candidate| candidate["seed"].as_u64())
         .unwrap_or(1) as u32;
+    let references: Vec<PathBuf> = entry
+        .and_then(|candidate| candidate["references"].as_array())
+        .map(|list| {
+            list.iter()
+                .filter_map(|value| value.as_str())
+                .map(PathBuf::from)
+                .collect()
+        })
+        .unwrap_or_default();
     let candidate = dir.join("candidates").join(format!("image-{count:02}.png"));
 
     media::ssh_run(&cfg, &cfg.audio_stop_cmd)
@@ -521,7 +531,7 @@ fn run_image(cfg: config::Config, args: &[String]) -> io::Result<()> {
         .map_err(|error| io::Error::other(format!("{error:#}")))?;
     let generated = (|| -> anyhow::Result<()> {
         clients::wait_sd(&cfg, Duration::from_secs(180))?;
-        let bytes = clients::generate_image(&cfg, &prompt, &negative, seed)?;
+        let bytes = clients::generate_image(&cfg, &prompt, &negative, seed, &references)?;
         if let Some(parent) = candidate.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -548,6 +558,10 @@ fn run_image(cfg: config::Config, args: &[String]) -> io::Result<()> {
             "seed": seed,
             "prompt": prompt,
             "negative_prompt": negative,
+            "references": references
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>(),
         }));
     }
     meta["image"]["selected"] = serde_json::json!(count);

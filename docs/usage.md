@@ -99,6 +99,17 @@ The run scores the pool before the review and, when a side misses, regenerates o
 - The review opens on the judge suggestion or, without one, on the best-scored pair. The log shows each patch, the scores after each round and why the loop stopped.
 - A run that ends below the target is still saved and marked `accepted_by_limit`; `melodias history` and the dashboard show the outcome, and the run log says which side hit its budget.
 
+### Reference library
+
+To condition the thumbnails on a curated set, point `IMAGE_REFERENCES` at a folder (local or mounted SMB) and group the images in concept subfolders:
+
+```bash
+export IMAGE_REFERENCES=/mnt/owncloud/melodias-refs
+melodias 'https://www.youtube.com/watch?v=...' 'epic 8bit battle theme'
+```
+
+The subfolder whose name matches the vibe (longest match) is used; `IMAGE_REFERENCE_CONCEPT=battle` forces one, and `IMAGE_REFERENCE_COUNT=3` changes how many go per generation. The references are sent as `extra_images` to sd-server, rotate between retry rounds, and are recorded per candidate in `meta.json`. The app never mounts the share or copies the images into the repository.
+
 ### History
 
 Every finished run records itself in a local SQLite database after the video stage, so the next command does not need the run directory. `melodias history` shows the last 20 runs with their outcome (`accepted`, `accepted_by_limit` or `below_target`); `findings` ranks the codes by the points they cost; `trend` averages by day, week or month. `--json` and `--csv` feed a script, and the whole view only reads:

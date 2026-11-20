@@ -12,6 +12,9 @@ fn reads_the_optional_fields() {
         image_negative_prompt = "glowing eyes"
         image_steps = 12
         image_seed = 42
+        image_references = "/mnt/refs"
+        image_reference_count = 2
+        image_reference_concept = "battle"
         candidates = 3
         score_rounds = 1
         audio_draft_sec = 60
@@ -29,6 +32,9 @@ fn reads_the_optional_fields() {
     assert_eq!(file.image_negative_prompt.as_deref(), Some("glowing eyes"));
     assert_eq!(file.image_steps, Some(12));
     assert_eq!(file.image_seed, Some(42));
+    assert_eq!(file.image_references, Some(PathBuf::from("/mnt/refs")));
+    assert_eq!(file.image_reference_count, Some(2));
+    assert_eq!(file.image_reference_concept.as_deref(), Some("battle"));
     assert_eq!(file.candidates, Some(3));
     assert_eq!(file.score_rounds, Some(1));
     assert_eq!(file.audio_draft_sec, Some(60));

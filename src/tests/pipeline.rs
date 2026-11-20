@@ -34,6 +34,7 @@ fn scored(name: &str, value: Option<f64>, findings: Vec<score::Finding>) -> Scor
         }),
         prompt: String::new(),
         negative: String::new(),
+        references: Vec::new(),
     }
 }
 

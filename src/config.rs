@@ -64,6 +64,12 @@ pub struct Config {
     pub image_steps: u32,
     /// Optional fixed seed to reproduce an image candidate.
     pub image_seed: Option<u32>,
+    /// Optional folder of reference thumbnails, grouped by concept.
+    pub image_references: PathBuf,
+    /// How many references to send per generation.
+    pub image_reference_count: u32,
+    /// Force a concept subfolder instead of matching the vibe.
+    pub image_reference_concept: String,
     /// Number of candidates per modality.
     pub candidates: u32,
     /// Deterministic retry rounds; 0 disables the loop.
@@ -187,6 +193,20 @@ impl Config {
             image_seed: env("IMAGE_SEED")
                 .and_then(|value| value.parse().ok())
                 .or(file.image_seed),
+            image_references: env("IMAGE_REFERENCES")
+                .map(PathBuf::from)
+                .or(file.image_references)
+                .unwrap_or_default(),
+            image_reference_count: pick_parsed(
+                env("IMAGE_REFERENCE_COUNT"),
+                file.image_reference_count,
+                3,
+            ),
+            image_reference_concept: pick(
+                env("IMAGE_REFERENCE_CONCEPT"),
+                file.image_reference_concept,
+                "",
+            ),
             candidates: pick_parsed(env("CANDIDATES"), file.candidates, 3),
             score_rounds: pick_parsed(env("SCORE_ROUNDS"), file.score_rounds, 2),
             audio_draft_sec: pick_parsed(env("AUDIO_DRAFT_SEC"), file.audio_draft_sec, 60),
@@ -294,6 +314,9 @@ struct FileConfig {
     judge_timeout_sec: Option<u64>,
     image_steps: Option<u32>,
     image_seed: Option<u32>,
+    image_references: Option<PathBuf>,
+    image_reference_count: Option<u32>,
+    image_reference_concept: Option<String>,
     candidates: Option<u32>,
     score_rounds: Option<u32>,
     audio_draft_sec: Option<u32>,

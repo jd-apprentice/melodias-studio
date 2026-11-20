@@ -6,7 +6,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 
-use crate::{clients, config::Config, history, judge, media, retry, score, video};
+use crate::{clients, config::Config, history, judge, media, references, retry, score, video};
 
 pub const STAGES: [&str; 11] = [
     "Image prompt",
@@ -143,6 +143,37 @@ fn run(
     media::preflight()?;
     video::preflight(cfg)?;
 
+    let image_references =
+        match references::images(&cfg.image_references, vibe, &cfg.image_reference_concept) {
+            Ok(files) if !files.is_empty() => {
+                log(
+                    tx,
+                    format!(
+                        "references: {} images from {}",
+                        files.len(),
+                        cfg.image_references.display()
+                    ),
+                );
+                files
+            }
+            Ok(files) => {
+                if !cfg.image_references.as_os_str().is_empty() && files.is_empty() {
+                    log(
+                        tx,
+                        format!(
+                            "references: no images in {} (check the concept folder)",
+                            cfg.image_references.display()
+                        ),
+                    );
+                }
+                files
+            }
+            Err(error) => {
+                log(tx, format!("warning: references disabled: {error:#}"));
+                Vec::new()
+            }
+        };
+
     // The LLM writes the thumbnail prompt while it still owns the GPU.
     let mut image_prompt = retry::Prompt::new(
         step(tx, 0, || {
@@ -170,6 +201,7 @@ fn run(
             &mut image_prompt,
             image_seed,
             count as usize,
+            &image_references,
         )
     })?;
     let images: Vec<Candidate> = image_scored
@@ -407,6 +439,11 @@ fn run(
                     "seed": item.candidate.seed,
                     "prompt": item.prompt,
                     "negative_prompt": item.negative,
+                    "references": item
+                        .references
+                        .iter()
+                        .map(|path| path.display().to_string())
+                        .collect::<Vec<_>>(),
                 })
             })
             .collect();
@@ -511,6 +548,7 @@ struct Scored {
     side: Option<score::SideScore>,
     prompt: String,
     negative: String,
+    references: Vec<PathBuf>,
 }
 
 fn best_index(pool: &[Scored]) -> Option<usize> {
@@ -558,6 +596,7 @@ struct ImageRound<'a> {
     seed: u32,
     start: usize,
     count: usize,
+    references: &'a [PathBuf],
 }
 
 fn generate_images(round: ImageRound<'_>) -> Result<Vec<Scored>> {
@@ -570,6 +609,7 @@ fn generate_images(round: ImageRound<'_>) -> Result<Vec<Scored>> {
             &round.prompt.positive,
             &round.prompt.negative,
             candidate_seed,
+            round.references,
         )?;
         let path = round.dir.join(format!("image-{:02}.png", position + 1));
         std::fs::write(&path, &bytes).context("saving an image candidate")?;
@@ -603,6 +643,7 @@ fn generate_images(round: ImageRound<'_>) -> Result<Vec<Scored>> {
             side: None,
             prompt: round.prompt.positive.clone(),
             negative: round.prompt.negative.clone(),
+            references: round.references.to_vec(),
         };
         match score::image_side(&item.candidate.file) {
             Ok(side) => item.side = Some(side),
@@ -667,6 +708,7 @@ fn generate_drafts(round: AudioRound<'_>) -> Result<Vec<Scored>> {
             side: None,
             prompt: round.prompt.positive.clone(),
             negative: round.prompt.negative.clone(),
+            references: Vec::new(),
         };
         match score::draft_side(&item.candidate.file, round.target) {
             Ok(side) => item.side = Some(side),
@@ -692,8 +734,11 @@ fn image_pool(
     prompt: &mut retry::Prompt,
     seed: u32,
     count: usize,
+    refs: &[PathBuf],
 ) -> Result<(Vec<Scored>, Vec<retry::Applied>, u32, String)> {
     let budget = cfg.score_rounds.min(retry::IMAGE_ROUNDS);
+    let reference_count = cfg.image_reference_count as usize;
+    let initial_refs = references::pick(refs, 0, reference_count);
     let mut pool = generate_images(ImageRound {
         cfg,
         tx,
@@ -702,6 +747,7 @@ fn image_pool(
         seed,
         start: 0,
         count,
+        references: &initial_refs,
     })?;
     let mut patches = Vec::new();
     let mut used = BTreeSet::new();
@@ -743,6 +789,8 @@ fn image_pool(
                 finding.code, finding.delta
             ),
         );
+        let retry_refs =
+            references::pick(refs, (round as usize) * reference_count, reference_count);
         pool.extend(generate_images(ImageRound {
             cfg,
             tx,
@@ -751,6 +799,7 @@ fn image_pool(
             seed,
             start: pool.len(),
             count: add,
+            references: &retry_refs,
         })?);
         patches.push(applied);
         rounds = round;

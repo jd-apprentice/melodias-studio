@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
@@ -201,13 +202,18 @@ fn with_extra_args(prompt: &str, seed: u32, steps: u32, negative_prompt: &str) -
 }
 
 /// One image with an explicit negative prompt, so a retry can add to the
-/// configured one without mutating the config.
+/// configured one without mutating the config. A non-empty reference list uses
+/// the sdapi endpoint, which is the one that carries `extra_images`.
 pub fn generate_image(
     cfg: &Config,
     prompt: &str,
     negative_prompt: &str,
     seed: u32,
+    references: &[PathBuf],
 ) -> Result<Vec<u8>> {
+    if !references.is_empty() {
+        return generate_image_with_references(cfg, prompt, negative_prompt, seed, references);
+    }
     let url = format!("{}/v1/images/generations", cfg.sd_url.trim_end_matches('/'));
     let prompt = with_extra_args(prompt, seed, cfg.image_steps, negative_prompt);
     let body = json!({
@@ -226,6 +232,46 @@ pub fn generate_image(
     let b64 = resp["data"][0]["b64_json"]
         .as_str()
         .context("response without data[0].b64_json")?;
+    base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .context("invalid base64 image")
+}
+
+fn generate_image_with_references(
+    cfg: &Config,
+    prompt: &str,
+    negative_prompt: &str,
+    seed: u32,
+    references: &[PathBuf],
+) -> Result<Vec<u8>> {
+    let url = format!("{}/sdapi/v1/txt2img", cfg.sd_url.trim_end_matches('/'));
+    let extra_images = references
+        .iter()
+        .map(|path| {
+            let bytes = std::fs::read(path)
+                .with_context(|| format!("reading reference {}", path.display()))?;
+            Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+        })
+        .collect::<Result<Vec<String>>>()?;
+    let body = json!({
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "width": cfg.width,
+        "height": cfg.height,
+        "steps": cfg.image_steps,
+        "seed": seed,
+        "extra_images": extra_images,
+    });
+    let resp: serde_json::Value = long_client()?
+        .post(&url)
+        .json(&body)
+        .send()
+        .and_then(|r| r.error_for_status())
+        .with_context(|| format!("sd-server (references) failed at {url}"))?
+        .json()?;
+    let b64 = resp["images"][0]
+        .as_str()
+        .context("sdapi response without images[0]")?;
     base64::engine::general_purpose::STANDARD
         .decode(b64)
         .context("invalid base64 image")

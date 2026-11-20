@@ -47,6 +47,9 @@ cp config.example.toml ~/.config/melodias-studio/config.toml
 | `JUDGE_TIMEOUT_SEC` | `300` | per-call timeout |
 | `IMAGE_STEPS` | `20` | diffusion steps for the thumbnail |
 | `IMAGE_SEED` | random | fixed seed to reproduce a thumbnail |
+| `IMAGE_REFERENCES` | empty | optional folder of reference thumbnails, grouped by concept |
+| `IMAGE_REFERENCE_COUNT` | `3` | references sent per image generation |
+| `IMAGE_REFERENCE_CONCEPT` | empty | force a concept subfolder instead of matching the vibe |
 | `CANDIDATES` | `3` | candidates per modality |
 | `SCORE_ROUNDS` | `2` | deterministic retry rounds; `0` disables the loop |
 | `AUDIO_DRAFT_SEC` | `60` | length of each audio draft |
@@ -85,6 +88,23 @@ The channel medium is a hard rule: the audio prompt always gets `AUDIO_STYLE`, e
 An empty environment variable is ignored, so to run locally use `ssh_host = ""` in `config.toml` instead of `SSH_HOST=`.
 
 The pipeline renders with Remotion by default. Before the GPU stages it checks `VIDEO_PROJECT`, `pnpm` and the overlays selected by `VIDEO_PARTICLES`; if something is missing the run fails there with the command to fix it. It never falls back to ffmpeg on its own. `VIDEO_RENDERER=ffmpeg` or `melodias video <dir>` is the explicit fast path.
+
+## Reference library
+
+`IMAGE_REFERENCES` points at a folder of reference thumbnails. It is only a path: a normal folder or a mounted SMB share. The app does not mount it, copy it into the repository, or handle credentials.
+
+```text
+references/
+  battle/     ...
+  forest/     ...
+  castle/     ...
+```
+
+The subfolder whose name (letters and digits only) is contained in the vibe wins, longest match first. For `8bit jrpg battle theme`, `jrpg-battle` beats `battle`. `IMAGE_REFERENCE_CONCEPT=battle` forces one. If no subfolder matches, the images directly in the root are used; if there are none, the run continues without references.
+
+`IMAGE_REFERENCE_COUNT` (3 by default) references are sent per generation through the sd-server image API (`extra_images`). Each reference costs conditioning time, so 2 to 4 is the practical range. The retry rounds rotate through the library, and `meta.json` records the references used by every image candidate. `melodias image` reuses the selected candidate's references.
+
+Use images you have the rights to, for example your own art or CC0 packs. The app never downloads or scrapes anything.
 
 ## History
 
