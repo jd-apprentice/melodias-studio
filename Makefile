@@ -8,7 +8,7 @@ PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 BIN := target/release/melodias
 
-.PHONY: help run generate image judge score history dashboard render video backfill build check fmt test install uninstall deploy status log clean
+.PHONY: help run generate image judge score history dashboard render video backfill refs-pixabay refs-import build check fmt test install uninstall deploy status log clean
 
 help:
 	@printf '%s\n' \
@@ -23,6 +23,8 @@ help:
   '  make history [ARGS=findings]         read the local history database' \
   '  make dashboard                       serve the read-only dashboard on 127.0.0.1' \
   '  make backfill [ARGS=--replace]       score the runs in output/ into the history DB' \
+  '  make refs-pixabay [ARGS=...]         fill the reference library from Pixabay' \
+  '  make refs-import ARGS=...            import your own or CC0 reference packs' \
 	  '  make render DIR=output/<slug>        produced video with Remotion' \
 	  '  make video DIR=output/<slug>         fast video with ffmpeg' \
 	  '  make uninstall                       removes the installed binary' \
@@ -60,6 +62,13 @@ score:
 
 backfill:
 	scripts/backfill-history.sh $(ARGS)
+
+refs-pixabay:
+	scripts/fetch-pixabay.sh $(ARGS)
+
+refs-import:
+	@test -n "$(ARGS)" || { echo 'missing ARGS, for example: make refs-import ARGS="--concept castle --license CC0-1.0 pack.zip"'; exit 2; }
+	scripts/import-references.sh $(ARGS)
 
 history:
 	$(CARGO) run --release -- history $(ARGS)

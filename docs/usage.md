@@ -110,6 +110,8 @@ melodias 'https://www.youtube.com/watch?v=...' 'epic 8bit battle theme'
 
 The subfolder whose name matches the vibe (longest match) is used; `IMAGE_REFERENCE_CONCEPT=battle` forces one, and `IMAGE_REFERENCE_COUNT=3` changes how many go per generation. The references are sent as `extra_images` to sd-server, rotate between retry rounds, and are recorded per candidate in `meta.json`. The app never mounts the share or copies the images into the repository.
 
+`scripts/fetch-pixabay.sh` fills the folder from Pixabay and `scripts/import-references.sh` imports your own or CC0 packs; both write `sources.jsonl` with the license of every image. See [configuration.md](configuration.md#building-a-library).
+
 ### History
 
 Every finished run records itself in a local SQLite database after the video stage, so the next command does not need the run directory. `melodias history` shows the last 20 runs with their outcome (`accepted`, `accepted_by_limit` or `below_target`); `findings` ranks the codes by the points they cost; `trend` averages by day, week or month. `--json` and `--csv` feed a script, and the whole view only reads:

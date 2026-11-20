@@ -106,6 +106,36 @@ The subfolder whose name (letters and digits only) is contained in the vibe wins
 
 Use images you have the rights to, for example your own art or CC0 packs. The app never downloads or scrapes anything.
 
+### Building a library
+
+Two helper scripts fill the folder. Neither script runs inside the app and the key never reaches the repository.
+
+`scripts/fetch-pixabay.sh` reads `PIXABAY_API_KEY`, or `$XDG_CONFIG_HOME/melodias-studio/pixabay.key`, or `pixabay_api_key` in `config.toml`:
+
+```bash
+install -m 600 /dev/null ~/.config/melodias-studio/pixabay.key
+$EDITOR ~/.config/melodias-studio/pixabay.key
+
+scripts/fetch-pixabay.sh --count 60
+scripts/fetch-pixabay.sh --concept forest --count 40
+scripts/fetch-pixabay.sh --concept dungeon --query "pixel art dungeon background" --count 30
+scripts/fetch-pixabay.sh --dry-run --concept battle --count 5
+```
+
+The default concepts are `battle` (`pixel art knight`), `forest` (`pixel art forest background`), `castle` (`pixel art castle`) and `jrpg` (`pixel art game`). `--out` falls back to `IMAGE_REFERENCES`, then `image_references` in `config.toml`, then `~/.local/share/melodias-studio/references`. Images are the 640 px Pixabay rendition, at least 400 px wide (`--min-width`), saved as `<concept>/pixabay-<id>.<ext>`.
+
+`scripts/import-references.sh` imports what you downloaded by hand, including `.zip` packs:
+
+```bash
+scripts/import-references.sh --concept castle --license CC0-1.0 \
+  --author "Kenney" --source-url https://kenney.nl/assets/castle-kit \
+  ~/Downloads/castle-kit.zip
+```
+
+It requires an explicit `--license`, normalizes to PNG with a 768 px longest side (`--size`), deduplicates by sha256, and names the files `import-<hash>.png`. Re-importing the same pack is harmless. Both scripts also accept `--dry-run`.
+
+Every image is appended to `<out>/sources.jsonl`: concept, file, source, license, author, page URL, tags and hash. Keep that manifest with the library, it is the license record. Pixabay results use the Pixabay Content License: free use and adaptation, no attribution, no standalone redistribution, and no logos, brands or recognizable people.
+
 ## History
 
 Every finished run scores itself and appends the result to a local SQLite database, again without a GPU or a cloud call. The file is `history.db` next to `config.toml` (`$XDG_CONFIG_HOME/melodias-studio/history.db` by default). `MELODIAS_DB` or the `db_path` key move it, for example into a checkout during development:
