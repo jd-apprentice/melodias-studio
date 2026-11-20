@@ -335,8 +335,8 @@ function renderRunsTable(data) {
 function renderEmpty(data) {
   document.getElementById("empty").hidden = false;
   document.getElementById("empty-detail").textContent = data.exists
-    ? `The database at ${data.db} has no runs yet. Finish a run, or run make backfill.`
-    : `No database at ${data.db} yet. Finish a run, or run make backfill to score the runs already in output/.`;
+    ? "The database has no runs yet. Finish a run, or run make backfill."
+    : "No history database yet. Finish a run, or run make backfill to score the runs already in output/.";
   for (const id of ["score-panel", "findings-panel", "runs-panel"]) {
     document.getElementById(id).hidden = true;
   }
@@ -344,7 +344,6 @@ function renderEmpty(data) {
 
 function render(data) {
   document.getElementById("banner").hidden = true;
-  document.getElementById("db").textContent = data.db;
   const stamp = new Date(data.generated_at);
   document.getElementById("stamp").textContent = Number.isNaN(stamp.getTime())
     ? ""
@@ -353,7 +352,7 @@ function render(data) {
   if (!data.runs.length) {
     renderEmpty(data);
     document.getElementById("footer").textContent =
-      `polling every ${REFRESH_LABEL} · read-only · database ${data.db}`;
+      `polling every ${REFRESH_LABEL} · read-only`;
     return;
   }
   for (const id of ["score-panel", "findings-panel", "runs-panel"]) {

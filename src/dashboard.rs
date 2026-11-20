@@ -64,7 +64,6 @@ pub struct FindingPoint {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Summary {
-    pub db: String,
     pub exists: bool,
     pub generated_at: String,
     pub limit: usize,
@@ -175,7 +174,6 @@ fn query_limit(query: &str) -> Option<usize> {
 pub fn summary(db: &Path, limit: usize) -> Result<Summary> {
     let exists = db.is_file();
     let mut summary = Summary {
-        db: db.display().to_string(),
         exists,
         generated_at: history::now_iso8601(),
         limit,
