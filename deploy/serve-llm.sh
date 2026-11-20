@@ -10,7 +10,7 @@ LOG=/var/log/melodias-llm.log
 case "${1:-}" in
   start)
     if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-      echo "$NAME ya corre (pid $(cat "$PIDFILE"))"
+      echo "$NAME already running (pid $(cat "$PIDFILE"))"
       exit 0
     fi
     setsid "$BIN" -m "$MODEL" \
@@ -18,11 +18,11 @@ case "${1:-}" in
       -c 8192 -ngl 99 -fa on -ctk q8_0 -ctv q8_0 --jinja \
       >"$LOG" 2>&1 </dev/null &
     echo $! >"$PIDFILE"
-    echo "$NAME arrancado (pid $(cat "$PIDFILE"))"
+    echo "$NAME started (pid $(cat "$PIDFILE"))"
     ;;
   stop)
     if [ ! -f "$PIDFILE" ]; then
-      echo "$NAME no corre"
+      echo "$NAME not running"
       exit 0
     fi
     pid=$(cat "$PIDFILE")
@@ -32,18 +32,18 @@ case "${1:-}" in
       sleep 0.5
     done
     rm -f "$PIDFILE"
-    echo "$NAME detenido"
+    echo "$NAME stopped"
     ;;
   status)
     if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-      echo "$NAME corriendo (pid $(cat "$PIDFILE"))"
+      echo "$NAME running (pid $(cat "$PIDFILE"))"
     else
-      echo "$NAME detenido"
+      echo "$NAME stopped"
       exit 1
     fi
     ;;
   *)
-    echo "uso: $0 start|stop|status"
+    echo "usage: $0 start|stop|status"
     exit 2
     ;;
 esac

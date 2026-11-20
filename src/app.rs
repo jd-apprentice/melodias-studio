@@ -117,27 +117,27 @@ impl App {
                             write_line(
                                 &mut self.log,
                                 &format!(
-                                    "✔ listo · seed {} · {}",
+                                    "✔ done · seed {} · {}",
                                     outcome.seed,
                                     outcome.audio.display()
                                 ),
                             );
                             write_line(
                                 &mut self.log,
-                                &format!("✔ miniatura · {}", outcome.image.display()),
+                                &format!("✔ thumbnail · {}", outcome.image.display()),
                             );
                             self.summary = Some(format!(
-                                "listo · seed {} · {}",
+                                "done · seed {} · {}",
                                 outcome.seed,
                                 outcome.audio.display()
                             ));
                             self.logs
-                                .push(format!("miniatura: {}", outcome.image.display()));
+                                .push(format!("thumbnail: {}", outcome.image.display()));
                             self.logs.push(format!("prompt: {}", outcome.image_prompt));
                         }
                         Err(err) => {
-                            write_line(&mut self.log, &format!("✖ falló: {err}"));
-                            self.summary = Some(format!("falló: {err}"));
+                            write_line(&mut self.log, &format!("✖ failed: {err}"));
+                            self.summary = Some(format!("failed: {err}"));
                         }
                     }
                     self.log = None;
@@ -219,7 +219,7 @@ fn draw(frame: &mut Frame, app: &App) {
 
     draw_header(frame, app, header_area);
     draw_input(frame, app, url_area, Field::Url, "YouTube URL");
-    draw_input(frame, app, vibe_area, Field::Vibe, "Vibe o concepto");
+    draw_input(frame, app, vibe_area, Field::Vibe, "Vibe or concept");
     draw_gauge(frame, app, gauge_area);
     draw_body(frame, app, body_area);
     draw_status(frame, app, status_area);
@@ -238,7 +238,7 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
             Style::default().add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            format!("   {} · una P40 para tres servicios", app.cfg.ssh_host),
+            format!("   {} · one P40 for three services", app.cfg.ssh_host),
             Style::default().fg(Color::DarkGray),
         ),
     ]);
@@ -307,7 +307,7 @@ fn draw_gauge(frame: &mut Frame, app: &App, area: Rect) {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title(" Progreso ")
+                    .title(" Progress ")
                     .border_style(Style::default().fg(Color::DarkGray)),
             )
             .gauge_style(Style::default().fg(color))
@@ -361,7 +361,7 @@ fn draw_stages(frame: &mut Frame, app: &App, area: Rect) {
         List::new(items).block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(format!(" Etapas · {ok}/{} ", STAGES.len()))
+                .title(format!(" Stages · {ok}/{} ", STAGES.len()))
                 .border_style(Style::default().fg(Color::DarkGray)),
         ),
         area,
@@ -373,7 +373,7 @@ fn draw_log(frame: &mut Frame, app: &App, area: Rect) {
     let start = app.logs.len().saturating_sub(height);
     let lines: Vec<Line> = if app.logs.is_empty() {
         vec![Line::from(Span::styled(
-            "Sin actividad todavía. Enter arranca la corrida.",
+            "No activity yet. Enter starts the run.",
             Style::default().fg(Color::DarkGray),
         ))]
     } else {
@@ -397,11 +397,11 @@ fn draw_log(frame: &mut Frame, app: &App, area: Rect) {
 
 fn log_style(text: &str) -> Style {
     let lower = text.to_lowercase();
-    if lower.contains("falló") || lower.contains("failed") {
+    if lower.contains("failed") {
         Style::default().fg(Color::Red)
-    } else if lower.starts_with("aviso") {
+    } else if lower.starts_with("warning") {
         Style::default().fg(Color::Yellow)
-    } else if lower.starts_with("miniatura") || lower.starts_with("loop") {
+    } else if lower.starts_with("thumbnail") || lower.starts_with("loop") {
         Style::default().fg(Color::Green)
     } else {
         Style::default()
@@ -410,7 +410,7 @@ fn log_style(text: &str) -> Style {
 
 fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
     let line = if let Some(summary) = &app.summary {
-        let color = if summary.starts_with("falló") {
+        let color = if summary.starts_with("failed") {
             Color::Red
         } else {
             Color::Green
@@ -426,24 +426,24 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(vec![
             Span::styled(" ◐ ", Style::default().fg(Color::Yellow)),
             Span::styled(
-                "generando",
+                "running",
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                " · la etapa en curso está marcada arriba",
+                " · the current stage is highlighted above",
                 Style::default().fg(Color::DarkGray),
             ),
         ])
     } else {
         Line::from(vec![
             Span::styled(" Tab", key_style()),
-            Span::styled(" campo  ", hint_style()),
+            Span::styled(" field  ", hint_style()),
             Span::styled(" Enter", key_style()),
-            Span::styled(" avanzar / generar  ", hint_style()),
+            Span::styled(" next / run  ", hint_style()),
             Span::styled(" q", key_style()),
-            Span::styled(" salir", hint_style()),
+            Span::styled(" quit", hint_style()),
         ])
     };
     frame.render_widget(Paragraph::new(line), area);
@@ -487,9 +487,9 @@ mod tests {
         app.states[1] = State::Ok;
         app.states[2] = State::Running;
         app.logs
-            .push("prompt imagen: pixel art castle at sunset".to_string());
+            .push("image prompt: pixel art castle at sunset".to_string());
         app.logs
-            .push("miniatura: output/destiny/thumbnail.png".to_string());
+            .push("thumbnail: output/destiny/thumbnail.png".to_string());
 
         for (width, height) in [(80, 24), (120, 36)] {
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();

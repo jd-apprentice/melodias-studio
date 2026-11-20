@@ -11,19 +11,19 @@ help:
 	  'melodias-studio' \
 	  '' \
 	  '  make run                             TUI' \
-	  '  make generate URL=... VIBE="..."     pipeline sin TUI, con log en output/' \
-	  '  make log                             ultimas lineas del log mas reciente' \
+	  '  make generate URL=... VIBE="..."     headless pipeline, log in output/' \
+	  '  make log                             last lines of the newest log' \
 	  '  make check                           fmt + build + clippy -D warnings + tests' \
-	  '  make status                          estado de llm, sd y audio en la VM' \
-	  '  make deploy                          copia deploy/ a la VM' \
+	  '  make status                          state of llm, sd and audio on the VM' \
+	  '  make deploy                          copy deploy/ to the VM' \
 	  '  make clean                           cargo clean'
 
 run:
 	$(CARGO) run
 
 generate:
-	@test -n "$(URL)" || { echo 'falta URL, por ejemplo: make generate URL="https://www.youtube.com/watch?v=..." VIBE="epic 8-bit orchestral finale"'; exit 2; }
-	@test -n "$(VIBE)" || { echo 'falta VIBE="..."'; exit 2; }
+	@test -n "$(URL)" || { echo 'missing URL, for example: make generate URL="https://www.youtube.com/watch?v=..." VIBE="epic 8-bit orchestral finale"'; exit 2; }
+	@test -n "$(VIBE)" || { echo 'missing VIBE="..."'; exit 2; }
 	@mkdir -p "$(LOG_DIR)"
 	@$(CARGO) build --release
 	@log="$(LOG_DIR)/run-$$(date +%Y%m%d-%H%M%S).log"; \
@@ -55,7 +55,7 @@ status:
 
 log:
 	@latest=$$(ls -t $(LOG_DIR)/*.log 2>/dev/null | head -1); \
-	  if [ -z "$$latest" ]; then echo "no hay logs en $(LOG_DIR)"; else echo "== $$latest =="; tail -n 40 "$$latest"; fi
+	  if [ -z "$$latest" ]; then echo "no logs in $(LOG_DIR)"; else echo "== $$latest =="; tail -n 40 "$$latest"; fi
 
 clean:
 	$(CARGO) clean

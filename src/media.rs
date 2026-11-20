@@ -41,7 +41,7 @@ fn attach_stderr(cmd: &mut Command) {
 pub fn preflight() -> Result<()> {
     for bin in ["yt-dlp", "ffmpeg", "ffprobe", "scp"] {
         if which(bin).is_none() {
-            bail!("{bin} no está en PATH");
+            bail!("{bin} is not on PATH");
         }
     }
     Ok(())
@@ -59,11 +59,11 @@ fn which(bin: &str) -> Option<PathBuf> {
 pub fn png_size(path: &Path) -> Result<(u32, u32)> {
     let mut header = [0u8; 24];
     std::fs::File::open(path)
-        .with_context(|| format!("abriendo {}", path.display()))?
+        .with_context(|| format!("opening {}", path.display()))?
         .read_exact(&mut header)
-        .with_context(|| format!("leyendo la cabecera de {}", path.display()))?;
+        .with_context(|| format!("reading the header of {}", path.display()))?;
     if &header[..8] != b"\x89PNG\r\n\x1a\n" || &header[12..16] != b"IHDR" {
-        bail!("{} no es un PNG válido", path.display());
+        bail!("{} is not a valid PNG", path.display());
     }
     let width = u32::from_be_bytes([header[16], header[17], header[18], header[19]]);
     let height = u32::from_be_bytes([header[20], header[21], header[22], header[23]]);
@@ -80,13 +80,13 @@ pub fn download_audio(url: &str, dir: &Path) -> Result<PathBuf> {
         .arg(&template)
         .arg(url);
     attach_output(&mut cmd);
-    let status = cmd.status().context("ejecutando yt-dlp")?;
+    let status = cmd.status().context("running yt-dlp")?;
     if !status.success() {
-        bail!("yt-dlp falló con {status}");
+        bail!("yt-dlp failed with {status}");
     }
     let wav = dir.join("source.wav");
     if !wav.is_file() {
-        bail!("yt-dlp no dejó {}", wav.display());
+        bail!("yt-dlp did not leave {}", wav.display());
     }
     Ok(wav)
 }
@@ -101,13 +101,13 @@ pub fn pick_reference(src: &Path, dir: &Path) -> Result<PathBuf> {
         .args(["-f", "f32le", "-ac", "1", "-ar", "8000", "-"])
         .stdout(Stdio::piped());
     attach_stderr(&mut cmd);
-    let mut child = cmd.spawn().context("decodificando para medir energía")?;
+    let mut child = cmd.spawn().context("decoding to measure energy")?;
 
     let mut raw = Vec::new();
     child
         .stdout
         .take()
-        .context("stdout de ffmpeg")?
+        .context("ffmpeg stdout")?
         .read_to_end(&mut raw)?;
     let _ = child.wait();
 
@@ -156,12 +156,12 @@ pub fn pick_reference(src: &Path, dir: &Path) -> Result<PathBuf> {
         .args(["-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le"])
         .arg(&out);
     attach_output(&mut cmd);
-    let status = cmd.status().context("cortando referencia")?;
+    let status = cmd.status().context("cutting the reference")?;
     if !status.success() {
-        bail!("ffmpeg falló cortando la referencia");
+        bail!("ffmpeg failed while cutting the reference");
     }
     if total < 10.0 {
-        bail!("la fuente dura {total:.1} s, muy corta para usarla como referencia");
+        bail!("the source is {total:.1} s long, too short to use as a reference");
     }
     Ok(out)
 }
@@ -174,18 +174,22 @@ pub fn push_reference(cfg: &crate::config::Config, local: &Path, slug: &str) -> 
         .arg(&cfg.ssh_host)
         .arg(format!("mkdir -p {}", cfg.remote_ref_dir));
     attach_output(&mut mkdir);
-    let status = mkdir.status().context("creando el directorio remoto")?;
+    let status = mkdir.status().context("creating the remote directory")?;
     if !status.success() {
-        bail!("no pude crear {} en {}", cfg.remote_ref_dir, cfg.ssh_host);
+        bail!(
+            "could not create {} on {}",
+            cfg.remote_ref_dir,
+            cfg.ssh_host
+        );
     }
     let mut copy = Command::new("scp");
     copy.arg("-q")
         .arg(local)
         .arg(format!("{}:{remote}", cfg.ssh_host));
     attach_output(&mut copy);
-    let status = copy.status().context("copiando la referencia")?;
+    let status = copy.status().context("copying the reference")?;
     if !status.success() {
-        bail!("scp falló copiando la referencia");
+        bail!("scp failed while copying the reference");
     }
     Ok(remote)
 }
@@ -195,7 +199,7 @@ pub fn make_loop(src: &Path, dir: &Path) -> Result<PathBuf> {
     let total = duration_secs(src)?;
     let xf = 3.0f64;
     if total <= xf * 2.0 + 5.0 {
-        bail!("la toma dura {total:.1} s, muy corta para armar el loop");
+        bail!("the take is {total:.1} s long, too short to build the loop");
     }
     let cut = total - xf;
     let graph = format!(
@@ -213,9 +217,9 @@ pub fn make_loop(src: &Path, dir: &Path) -> Result<PathBuf> {
         .args(["-c:a", "pcm_s16le"])
         .arg(&out);
     attach_output(&mut cmd);
-    let status = cmd.status().context("armando el loop")?;
+    let status = cmd.status().context("building the loop")?;
     if !status.success() {
-        bail!("ffmpeg falló armando el loop");
+        bail!("ffmpeg failed while building the loop");
     }
     Ok(out)
 }
@@ -230,7 +234,7 @@ pub fn ssh_run(cfg: &crate::config::Config, command: &str) -> Result<()> {
     attach_output(&mut cmd);
     let status = cmd.status().with_context(|| format!("ssh {command}"))?;
     if !status.success() {
-        bail!("el comando remoto falló ({status}): {command}");
+        bail!("the remote command failed ({status}): {command}");
     }
     Ok(())
 }
@@ -243,9 +247,9 @@ pub fn encode_mp3(wav: &Path, dir: &Path, kbps: u32) -> Result<PathBuf> {
         .args(["-codec:a", "libmp3lame", "-b:a", &format!("{kbps}k")])
         .arg(&out);
     attach_output(&mut cmd);
-    let status = cmd.status().context("codificando mp3")?;
+    let status = cmd.status().context("encoding the mp3")?;
     if !status.success() {
-        bail!("ffmpeg falló codificando el mp3");
+        bail!("ffmpeg failed while encoding the mp3");
     }
     Ok(out)
 }
@@ -262,12 +266,12 @@ pub fn duration_secs(path: &Path) -> Result<f64> {
         ])
         .arg(path)
         .output()
-        .context("ejecutando ffprobe")?;
+        .context("running ffprobe")?;
     if !out.status.success() {
-        bail!("ffprobe falló con {}", path.display());
+        bail!("ffprobe failed on {}", path.display());
     }
     let text = String::from_utf8_lossy(&out.stdout);
     text.trim()
         .parse::<f64>()
-        .with_context(|| format!("duración inválida: {text:?}"))
+        .with_context(|| format!("invalid duration: {text:?}"))
 }

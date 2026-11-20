@@ -13,8 +13,7 @@ use crossterm::style::Stylize;
 
 use pipeline::{Msg, State};
 
-const USAGE: &str =
-    "uso: melodias-studio                 (TUI)\n     melodias-studio <url> <vibe>     (sin TUI)";
+const USAGE: &str = "usage: melodias-studio                 (TUI)\n       melodias-studio <url> <vibe>     (headless)";
 
 fn main() -> io::Result<()> {
     let cfg = config::Config::from_env();
@@ -70,19 +69,19 @@ fn run_headless(cfg: config::Config, args: &[String]) -> io::Result<()> {
             Msg::Done(Ok(outcome)) => {
                 out.line("", None);
                 let line = format!(
-                    "✔ listo · seed {} · {}",
+                    "✔ done · seed {} · {}",
                     outcome.seed,
                     outcome.audio.display()
                 );
                 let colored = out.pretty.then(|| line.as_str().green().bold().to_string());
                 out.line(&line, colored);
-                let image = format!("✔ miniatura · {}", outcome.image.display());
+                let image = format!("✔ thumbnail · {}", outcome.image.display());
                 let colored = out.pretty.then(|| image.as_str().green().to_string());
                 out.line(&image, colored);
                 return Ok(());
             }
             Msg::Done(Err(err)) => {
-                out.error(&format!("✖ falló: {err}"));
+                out.error(&format!("✖ failed: {err}"));
                 std::process::exit(1);
             }
         }
@@ -170,12 +169,12 @@ mod tests {
         let mut out = Reporter::new(Some(path.clone())).unwrap();
         out.stage(0, State::Running);
         out.stage(0, State::Ok);
-        out.log_line("prompt imagen: pixel art castle");
+        out.log_line("image prompt: pixel art castle");
 
         let text = std::fs::read_to_string(&path).unwrap();
-        assert!(text.contains("▶ 1/9 Prompt imagen"));
-        assert!(text.contains("✔ 1/9 Prompt imagen"));
-        assert!(text.contains("   · prompt imagen: pixel art castle"));
+        assert!(text.contains("▶ 1/9 Image prompt"));
+        assert!(text.contains("✔ 1/9 Image prompt"));
+        assert!(text.contains("   · image prompt: pixel art castle"));
         let _ = std::fs::remove_file(path);
     }
 }

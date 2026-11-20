@@ -11,7 +11,7 @@ fn short_client() -> Result<reqwest::blocking::Client> {
         .timeout(Duration::from_secs(10))
         .connect_timeout(Duration::from_secs(5))
         .build()
-        .context("creando cliente HTTP")
+        .context("creating the HTTP client")
 }
 
 /// One generation on the P40 can take half an hour, so generation requests get
@@ -21,7 +21,7 @@ fn long_client() -> Result<reqwest::blocking::Client> {
         .timeout(Duration::from_secs(3600))
         .connect_timeout(Duration::from_secs(10))
         .build()
-        .context("creando cliente HTTP")
+        .context("creating the HTTP client")
 }
 
 pub fn check_audio(cfg: &Config) -> Result<()> {
@@ -30,10 +30,10 @@ pub fn check_audio(cfg: &Config) -> Result<()> {
         .get(&url)
         .send()
         .and_then(|r| r.error_for_status())
-        .with_context(|| format!("audio.cpp no responde en {url}"))?
+        .with_context(|| format!("audio.cpp does not answer at {url}"))?
         .text()?;
     if !body.contains("\"ok\"") {
-        bail!("audio.cpp respondió algo inesperado: {body}");
+        bail!("audio.cpp returned something unexpected: {body}");
     }
     Ok(())
 }
@@ -44,7 +44,7 @@ pub fn check_llm(cfg: &Config) -> Result<()> {
         .get(&url)
         .send()
         .and_then(|r| r.error_for_status())
-        .with_context(|| format!("llama-server no responde en {url}"))?;
+        .with_context(|| format!("llama-server does not answer at {url}"))?;
     Ok(())
 }
 
@@ -54,7 +54,7 @@ pub fn check_sd(cfg: &Config) -> Result<()> {
         .get(&url)
         .send()
         .and_then(|r| r.error_for_status())
-        .with_context(|| format!("sd-server no responde en {url}"))?;
+        .with_context(|| format!("sd-server does not answer at {url}"))?;
     Ok(())
 }
 
@@ -77,7 +77,7 @@ fn wait(name: &str, timeout: Duration, probe: impl Fn() -> Result<()>) -> Result
             return Ok(());
         }
         if start.elapsed() > timeout {
-            bail!("{name} no respondió en {} s", timeout.as_secs());
+            bail!("{name} did not answer within {} s", timeout.as_secs());
         }
         std::thread::sleep(Duration::from_secs(3));
     }
@@ -105,11 +105,11 @@ nostalgic cozy mood. Never mention audio, BPM, tempo, music, songs, text or wate
         .json(&body)
         .send()
         .and_then(|r| r.error_for_status())
-        .with_context(|| format!("llama-server falló en {url}"))?
+        .with_context(|| format!("llama-server failed at {url}"))?
         .json()?;
     let raw = resp["choices"][0]["message"]["content"]
         .as_str()
-        .context("respuesta del LLM sin content")?;
+        .context("LLM response without content")?;
     let text = raw
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -117,7 +117,7 @@ nostalgic cozy mood. Never mention audio, BPM, tempo, music, songs, text or wate
         .trim_matches('"')
         .to_string();
     if text.is_empty() {
-        bail!("el LLM devolvió un prompt vacío");
+        bail!("the LLM returned an empty prompt");
     }
     Ok(text)
 }
@@ -148,14 +148,14 @@ pub fn generate_audio(cfg: &Config, prompt: &str, reference: &str, seed: u32) ->
         .json(&body)
         .send()
         .and_then(|r| r.error_for_status())
-        .with_context(|| format!("audio.cpp falló en {url}"))?
+        .with_context(|| format!("audio.cpp failed at {url}"))?
         .json()?;
     let b64 = resp["audio"]
         .as_str()
-        .context("respuesta sin campo audio")?;
+        .context("response without an audio field")?;
     base64::engine::general_purpose::STANDARD
         .decode(b64)
-        .context("audio base64 inválido")
+        .context("invalid base64 audio")
 }
 
 pub fn generate_image(cfg: &Config, prompt: &str) -> Result<Vec<u8>> {
@@ -171,12 +171,12 @@ pub fn generate_image(cfg: &Config, prompt: &str) -> Result<Vec<u8>> {
         .json(&body)
         .send()
         .and_then(|r| r.error_for_status())
-        .with_context(|| format!("sd-server falló en {url}"))?
+        .with_context(|| format!("sd-server failed at {url}"))?
         .json()?;
     let b64 = resp["data"][0]["b64_json"]
         .as_str()
-        .context("respuesta sin data[0].b64_json")?;
+        .context("response without data[0].b64_json")?;
     base64::engine::general_purpose::STANDARD
         .decode(b64)
-        .context("imagen base64 inválida")
+        .context("invalid base64 image")
 }
