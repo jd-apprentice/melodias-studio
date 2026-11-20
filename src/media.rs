@@ -62,7 +62,9 @@ pub fn pick_reference(src: &Path, dir: &Path) -> Result<PathBuf> {
     let _ = child.wait();
 
     let samples: Vec<f32> = raw
-        .as_chunks::<4>().0.iter()
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
         .collect();
     let win = 5 * 8000usize;
@@ -165,6 +167,22 @@ pub fn make_loop(src: &Path, dir: &Path) -> Result<PathBuf> {
         bail!("ffmpeg falló armando el loop");
     }
     Ok(out)
+}
+
+/// Runs an optional shell command on the GPU host. Empty commands are skipped.
+pub fn ssh_run(cfg: &crate::config::Config, command: &str) -> Result<()> {
+    if command.trim().is_empty() {
+        return Ok(());
+    }
+    let status = Command::new("ssh")
+        .arg(&cfg.ssh_host)
+        .arg(command)
+        .status()
+        .with_context(|| format!("ssh {command}"))?;
+    if !status.success() {
+        bail!("el comando remoto falló ({status}): {command}");
+    }
+    Ok(())
 }
 
 pub fn encode_mp3(wav: &Path, dir: &Path, kbps: u32) -> Result<PathBuf> {

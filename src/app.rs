@@ -5,7 +5,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Paragraph, Wrap};
 use ratatui::{DefaultTerminal, Frame};
 
 use crate::config::Config;
@@ -107,50 +107,59 @@ pub fn run(terminal: &mut DefaultTerminal, cfg: Config) -> std::io::Result<()> {
         terminal.draw(|frame| draw(frame, &app))?;
         app.drain();
         if event::poll(Duration::from_millis(100))?
-            && let Event::Key(key) = event::read()? {
-                if key.kind != KeyEventKind::Press {
-                    continue;
-                }
-                match key.code {
-                    KeyCode::Char('q') if !app.running => return Ok(()),
-                    KeyCode::Esc if !app.running => return Ok(()),
-                    KeyCode::Tab => {
-                        app.field = match app.field {
-                            Field::Url => Field::Vibe,
-                            Field::Vibe => Field::Url,
-                        }
-                    }
-                    KeyCode::Enter => {
-                        if app.field == Field::Url {
-                            app.field = Field::Vibe;
-                        } else {
-                            app.start();
-                        }
-                    }
-                    KeyCode::Backspace => match app.field {
-                        Field::Url => {
-                            app.url.pop();
-                        }
-                        Field::Vibe => {
-                            app.vibe.pop();
-                        }
-                    },
-                    KeyCode::Char(c) if !app.running => match app.field {
-                        Field::Url => app.url.push(c),
-                        Field::Vibe => app.vibe.push(c),
-                    },
-                    _ => {}
-                }
+            && let Event::Key(key) = event::read()?
+        {
+            if key.kind != KeyEventKind::Press {
+                continue;
             }
+            match key.code {
+                KeyCode::Char('q') if !app.running => return Ok(()),
+                KeyCode::Esc if !app.running => return Ok(()),
+                KeyCode::Tab => {
+                    app.field = match app.field {
+                        Field::Url => Field::Vibe,
+                        Field::Vibe => Field::Url,
+                    }
+                }
+                KeyCode::Enter => {
+                    if app.field == Field::Url {
+                        app.field = Field::Vibe;
+                    } else {
+                        app.start();
+                    }
+                }
+                KeyCode::Backspace => match app.field {
+                    Field::Url => {
+                        app.url.pop();
+                    }
+                    Field::Vibe => {
+                        app.vibe.pop();
+                    }
+                },
+                KeyCode::Char(c) if !app.running => match app.field {
+                    Field::Url => app.url.push(c),
+                    Field::Vibe => app.vibe.push(c),
+                },
+                _ => {}
+            }
+        }
     }
 }
 
 fn draw(frame: &mut Frame, app: &App) {
-    let [url_area, vibe_area, stages_area, log_area, status_area] = Layout::vertical([
+    let [
+        url_area,
+        vibe_area,
+        stages_area,
+        gauge_area,
+        log_area,
+        status_area,
+    ] = Layout::vertical([
         Constraint::Length(3),
         Constraint::Length(3),
         Constraint::Min(9),
-        Constraint::Min(8),
+        Constraint::Length(3),
+        Constraint::Min(6),
         Constraint::Length(1),
     ])
     .areas(frame.area());
@@ -203,6 +212,31 @@ fn draw(frame: &mut Frame, app: &App) {
     frame.render_widget(
         List::new(items).block(Block::default().borders(Borders::ALL).title(" Etapas ")),
         stages_area,
+    );
+
+    let ok = app
+        .states
+        .iter()
+        .filter(|state| **state == State::Ok)
+        .count();
+    let total = STAGES.len();
+    let running = app
+        .states
+        .iter()
+        .position(|state| *state == State::Running)
+        .and_then(|idx| STAGES.get(idx));
+    let label = match running {
+        Some(name) => format!("{ok}/{total} · {name}"),
+        None if ok == total => format!("{ok}/{total} · completo"),
+        None => format!("{ok}/{total}"),
+    };
+    frame.render_widget(
+        Gauge::default()
+            .block(Block::default().borders(Borders::ALL).title(" Progreso "))
+            .gauge_style(Style::default().fg(Color::Cyan))
+            .ratio(ok as f64 / total as f64)
+            .label(label),
+        gauge_area,
     );
 
     let height = log_area.height.saturating_sub(2) as usize;

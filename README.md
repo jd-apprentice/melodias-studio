@@ -1,84 +1,109 @@
 # melodias-studio
 
-TUI en Rust que convierte una canción de YouTube en dos entregables para el canal: **una miniatura** y **un track instrumental** de 3 minutos, usando solo modelos que corren en la P40 de la casa.
+A Rust TUI that turns a YouTube song into two deliverables for the channel: **one thumbnail** and **one three-minute instrumental track**, using only models that run on the home P40.
 
 ```
-URL de YouTube + vibe
+YouTube URL + vibe
         │
-        ├─ yt-dlp ─────────► audio fuente
-        ├─ ffmpeg ─────────► extracto de 60 s con más energía (referencia de timbre)
-        ├─ llama-server ───► prompt de miniatura
-        ├─ audiocpp_server ► toma de 210 s con reference_audio
-        ├─ ffmpeg ─────────► loop de 3 s + loudnorm -15 LUFS
-        └─ sd-server ──────► miniatura 1280x720
+        ├─ llama-server ───► thumbnail prompt (needs the GPU)
+        ├─ sd-server ──────► 1280x720 thumbnail
+        ├─ yt-dlp ─────────► source audio
+        ├─ ffmpeg ─────────► 60 s excerpt with the most energy (timbre reference)
+        ├─ audiocpp_server ► 210 s take with reference_audio
+        └─ ffmpeg ─────────► 3 s loop + loudnorm -15 LUFS
 ```
 
-## Requisitos
+The order is deliberate: the image runs first because it is the most fragile stage, and the download plus audio form one block that only needs the audio server.
+
+## Requirements
 
 - Rust 1.85+ (`rustup default stable`).
-- `yt-dlp`, `ffmpeg`, `ffprobe`, `scp` y `ssh` en el `PATH`.
-- Los tres servicios levantados en la VM de la GPU:
-  - `audiocpp_server` (ACE-Step) en `:8090`
-  - `sd-server` (MOSS-Image) en `:8081`
-  - `llama-server` (Qwen) en `:8080`
-- Acceso SSH sin password al host de la VM, para dejar la referencia de audio del lado del server.
+- `yt-dlp`, `ffmpeg`, `ffprobe`, `scp` and `ssh` on `PATH`.
+- Three services on the GPU VM:
+  - `llama-server` (Qwen) on `:8080`
+  - `sd-server` (MOSS-Image) on `:8081`
+  - `audiocpp_server` (ACE-Step) on `:8090`
+- Passwordless SSH to the VM, used to stage the audio reference and to run lifecycle commands.
 
-La P40 tiene 24 GB, así que los modelos no conviven: la app le pide a `audiocpp_server` que libere VRAM antes de generar la miniatura.
+The P40 has 24 GB, so the models do not fit together. `qwen3.6-35b` alone takes most of it, which is why the pipeline stops the LLM before starting `sd-server`.
 
-## Uso
+## Usage
 
 ```bash
 cargo run
 ```
 
-- `Tab` alterna entre la URL y el vibe.
-- `Enter` avanza de campo y después arranca la generación.
-- `q` sale (solo cuando terminó).
+- `Tab` switches between the URL and the vibe.
+- `Enter` moves to the next field, then starts the run.
+- `q` quits, only once the run finished.
 
-Cada etapa aparece con su estado y el log muestra cada paso, incluido el prompt que escribió el LLM.
+Each stage shows its state, the progress bar tracks how many are done, and the log prints every step, including the prompt the LLM wrote and the seed of the take.
 
-## Configuración
+## Configuration
 
-Todo por variables de entorno, con defaults apuntando a la VM:
+Everything is read from the environment, with defaults pointing at the VM:
 
-| Variable | Default | Qué hace |
+| Variable | Default | Meaning |
 | --- | --- | --- |
 | `AUDIO_URL` | `http://192.168.88.38:8090` | `audiocpp_server` |
-| `AUDIO_MODEL` | `ace-step` | id del modelo en el server |
+| `AUDIO_MODEL` | `ace-step` | model id registered on the server |
 | `SD_URL` | `http://192.168.88.38:8081` | `sd-server` |
 | `LLM_URL` | `http://192.168.88.38:8080` | `llama-server` |
-| `LLM_MODEL` | `local` | nombre que espera el server |
-| `SSH_HOST` | `root@192.168.88.38` | destino para copiar la referencia |
-| `REMOTE_REF_DIR` | `/models/ref` | carpeta remota de referencias |
-| `OUT_DIR` | `output` | salida local |
-| `DURATION_SEC` | `210` | largo de la toma |
-| `STEPS` | `32` | pasos de difusión |
+| `LLM_MODEL` | `local` | model name the server expects |
+| `SSH_HOST` | `root@192.168.88.38` | destination for the reference and lifecycle commands |
+| `REMOTE_REF_DIR` | `/models/ref` | remote folder for references |
+| `OUT_DIR` | `output` | local output |
+| `DURATION_SEC` | `210` | take length |
+| `STEPS` | `32` | diffusion steps |
 | `GUIDANCE` | `5` | CFG |
-| `SAMPLER` | `heun` | `euler` o `heun` |
-| `WIDTH` / `HEIGHT` | `1280` / `720` | tamaño de la miniatura |
+| `SAMPLER` | `heun` | `euler` or `heun` |
+| `WIDTH` / `HEIGHT` | `1280` / `720` | thumbnail size |
 
-## Salida
+### GPU lifecycle commands
+
+These are optional and run over SSH between stages. Leave them empty to manage the servers by hand:
+
+| Variable | When it runs |
+| --- | --- |
+| `LLM_STOP_CMD` | after the thumbnail prompt, before `sd-server` starts |
+| `SD_START_CMD` | right after `LLM_STOP_CMD` |
+| `SD_STOP_CMD` | before the audio stage |
+| `AUDIO_START_CMD` | right after `SD_STOP_CMD` |
+
+Example, if each server is a systemd unit on the VM:
+
+```bash
+LLM_STOP_CMD="systemctl stop llama-server" \
+SD_START_CMD="systemctl start sd-server" \
+SD_STOP_CMD="systemctl stop sd-server" \
+AUDIO_START_CMD="systemctl start audiocpp-server" \
+cargo run
+```
+
+The app waits for `/health` on the service it just started, up to 180 s, before moving on.
+
+## Output
 
 ```
 output/<slug>/
-├── audio.mp3      # loop de 3 min, 320 kbps, -15 LUFS
+├── audio.mp3      # 3 min loop, 320 kbps, -15 LUFS
 ├── thumbnail.png  # 1280x720
-├── meta.json      # seed, prompt, parámetros y URL de origen
-└── work/          # fuente, referencia y toma intermedia
+├── meta.json      # seed, prompts, parameters and source URL
+└── work/          # source, reference and raw take
 ```
 
-## Decisiones
+## Design notes
 
-- **La referencia es un extracto, no la canción entera.** ACE-Step toma tres ventanas de 10 s del archivo, así que se elige el minuto con mayor energía promedio y se evitan intros y breakdowns.
-- **El loop se arma en ffmpeg.** Crossfade de 3 s entre el final del outro y el inicio del intro. No depende del modelo ni de su tempo.
-- **La miniatura la escribe el LLM.** El vibe entra al chat como concepto y vuelve como prompt en inglés, con el estilo pixel art fijado en el system prompt.
-- **La VRAM se libera explícitamente.** `unload_all_models` en audio.cpp antes de pedir la imagen, porque los dos modelos no entran juntos.
+- **The reference is an excerpt, not the whole song.** ACE-Step samples three 10 s windows from the file, so the app picks the minute with the highest average energy and skips intros and breakdowns.
+- **The loop is built in ffmpeg.** A 3 s crossfade between the end of the outro and the start of the intro. It does not depend on the model or on its tempo.
+- **The LLM writes the thumbnail prompt.** The vibe goes in as a concept and comes back as an English prompt, with the pixel-art style pinned in the system prompt.
+- **Stages fail loudly and stop the run.** Each step reports its own error in the log so you know which service to look at.
 
 ## Roadmap
 
-- [ ] Detección de tempo y corte alineado al compás (hoy el crossfade es fijo).
-- [ ] Cancelar una generación en curso y reintentar una etapa sola.
-- [ ] Leer el título del video para nombrar la carpeta, en vez del vibe.
-- [ ] Config por archivo (`~/.config/melodias-studio/config.toml`).
-- [ ] Escribir directo la ficha en `jd-llm/projects/melodias8bit/videos/`.
-- [ ] Comparar dos tomas lado a lado antes de quedarse con una.
+- [ ] Tempo detection and bar-aligned cuts instead of a fixed 3 s crossfade.
+- [ ] Cancel a run in progress and retry a single stage.
+- [ ] Read the video title to name the output folder instead of the vibe.
+- [ ] Config file at `~/.config/melodias-studio/config.toml`.
+- [ ] Write the video entry straight into `jd-llm/projects/melodias8bit/videos/`.
+- [ ] Compare two takes side by side before picking one.

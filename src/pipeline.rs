@@ -1,21 +1,21 @@
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 
 use crate::{clients, config::Config, media};
 
 pub const STAGES: [&str; 9] = [
-    "Servicios",
+    "Prompt imagen",
+    "Preparar imagen",
+    "Miniatura",
     "Descarga",
     "Referencia",
     "Subida",
-    "Prompt imagen",
     "Audio",
     "Loop + master",
-    "Miniatura",
     "Guardado",
 ];
 
@@ -74,19 +74,31 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
 
     log(tx, format!("trabajando en {}", work.display()));
     log(tx, format!("seed {seed}"));
+    media::preflight()?;
 
-    step(tx, 0, || {
-        media::preflight()?;
-        clients::check_audio(cfg)?;
-        clients::check_llm(cfg)?;
-        clients::check_sd(cfg)?;
-        Ok(())
+    // The LLM writes the thumbnail prompt while it still owns the GPU.
+    let image_prompt = step(tx, 0, || {
+        clients::wait_llm(cfg, Duration::from_secs(30))?;
+        clients::ask_image_prompt(cfg, vibe)
+    })?;
+    log(tx, format!("prompt imagen: {image_prompt}"));
+
+    // Free the LLM, then bring up the image server.
+    step(tx, 1, || {
+        media::ssh_run(cfg, &cfg.llm_stop_cmd)?;
+        media::ssh_run(cfg, &cfg.sd_start_cmd)?;
+        clients::wait_sd(cfg, Duration::from_secs(180))
     })?;
 
-    let source = step(tx, 1, || media::download_audio(url, &work))?;
+    let image_bytes = step(tx, 2, || clients::generate_image(cfg, &image_prompt))?;
+    let image = cfg.out_dir.join(&slug).join("thumbnail.png");
+    std::fs::write(&image, &image_bytes).context("guardando la miniatura")?;
+    log(tx, format!("miniatura: {}", image.display()));
+
+    let source = step(tx, 3, || media::download_audio(url, &work))?;
     log(tx, format!("fuente: {}", source.display()));
 
-    let reference = step(tx, 2, || media::pick_reference(&source, &work))?;
+    let reference = step(tx, 4, || media::pick_reference(&source, &work))?;
     log(
         tx,
         format!(
@@ -96,13 +108,15 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
         ),
     );
 
-    let remote = step(tx, 3, || media::push_reference(cfg, &reference, &slug))?;
+    let remote = step(tx, 5, || media::push_reference(cfg, &reference, &slug))?;
     log(tx, format!("referencia remota: {remote}"));
 
-    let image_prompt = step(tx, 4, || clients::ask_image_prompt(cfg, vibe))?;
-    log(tx, format!("prompt imagen: {image_prompt}"));
-
-    let audio_bytes = step(tx, 5, || clients::generate_audio(cfg, vibe, &remote, seed))?;
+    let audio_bytes = step(tx, 6, || {
+        media::ssh_run(cfg, &cfg.sd_stop_cmd)?;
+        media::ssh_run(cfg, &cfg.audio_start_cmd)?;
+        clients::wait_audio(cfg, Duration::from_secs(180))?;
+        clients::generate_audio(cfg, vibe, &remote, seed)
+    })?;
     let take = work.join("take.wav");
     std::fs::write(&take, &audio_bytes).context("guardando la toma")?;
     log(
@@ -114,7 +128,7 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
         ),
     );
 
-    let looped = step(tx, 6, || media::make_loop(&take, &work))?;
+    let looped = step(tx, 7, || media::make_loop(&take, &work))?;
     let mp3 = media::encode_mp3(&looped, &work, 320)?;
     log(
         tx,
@@ -124,13 +138,6 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
             media::duration_secs(&mp3)?
         ),
     );
-
-    let image_bytes = step(tx, 7, || {
-        clients::unload_audio(cfg)?;
-        clients::generate_image(cfg, &image_prompt)
-    })?;
-    let image = cfg.out_dir.join(&slug).join("thumbnail.png");
-    std::fs::write(&image, &image_bytes).context("guardando la miniatura")?;
 
     step(tx, 8, || {
         let final_audio = cfg.out_dir.join(&slug).join("audio.mp3");
@@ -175,7 +182,7 @@ fn random_seed() -> u32 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.subsec_nanos())
         .unwrap_or(1);
-    (nanos % 100_000_000).max(1)
+    nanos.max(1)
 }
 
 pub fn slugify(text: &str) -> String {

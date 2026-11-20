@@ -47,6 +47,31 @@ pub fn check_sd(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
+pub fn wait_audio(cfg: &Config, timeout: Duration) -> Result<()> {
+    wait("audio.cpp", timeout, || check_audio(cfg))
+}
+
+pub fn wait_llm(cfg: &Config, timeout: Duration) -> Result<()> {
+    wait("llama-server", timeout, || check_llm(cfg))
+}
+
+pub fn wait_sd(cfg: &Config, timeout: Duration) -> Result<()> {
+    wait("sd-server", timeout, || check_sd(cfg))
+}
+
+fn wait(name: &str, timeout: Duration, probe: impl Fn() -> Result<()>) -> Result<()> {
+    let start = std::time::Instant::now();
+    loop {
+        if probe().is_ok() {
+            return Ok(());
+        }
+        if start.elapsed() > timeout {
+            bail!("{name} no respondió en {} s", timeout.as_secs());
+        }
+        std::thread::sleep(Duration::from_secs(3));
+    }
+}
+
 pub fn ask_image_prompt(cfg: &Config, vibe: &str) -> Result<String> {
     let url = format!("{}/v1/chat/completions", cfg.llm_url.trim_end_matches('/'));
     let system = "You write prompts for a text-to-image model. Reply with a single \
@@ -81,19 +106,6 @@ nostalgic mood, no text and no watermark.";
         bail!("el LLM devolvió un prompt vacío");
     }
     Ok(text)
-}
-
-pub fn unload_audio(cfg: &Config) -> Result<()> {
-    let url = format!(
-        "{}/v1/tasks/unload_all_models",
-        cfg.audio_url.trim_end_matches('/')
-    );
-    client()?
-        .post(&url)
-        .send()
-        .and_then(|r| r.error_for_status())
-        .with_context(|| format!("no pude liberar VRAM del audio en {url}"))?;
-    Ok(())
 }
 
 pub fn generate_audio(cfg: &Config, prompt: &str, reference: &str, seed: u32) -> Result<Vec<u8>> {
