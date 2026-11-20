@@ -8,7 +8,7 @@ PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 BIN := target/release/melodias
 
-.PHONY: help run generate image judge render video build check fmt test install uninstall deploy status log clean
+.PHONY: help run generate image judge score render video backfill build check fmt test install uninstall deploy status log clean
 
 help:
 	@printf '%s\n' \
@@ -18,7 +18,9 @@ help:
 	  '  make generate URL=... VIBE="..."     headless pipeline, log in output/' \
 	  '  make install                         builds and installs ~/.local/bin/melodias' \
 	  '  make image DIR=output/<slug>         regenerate the thumbnail of a finished run' \
-	  '  make judge DIR=output/<slug>         review a finished run with OpenRouter' \
+	  '  make judge DIR=output/<slug>         review a finished run with the judge' \
+  '  make score DIR=output/<slug>         score a finished run, no GPU' \
+  '  make backfill [ARGS=--replace]       score the runs in output/ into the history DB' \
 	  '  make render DIR=output/<slug>        produced video with Remotion' \
 	  '  make video DIR=output/<slug>         fast video with ffmpeg' \
 	  '  make uninstall                       removes the installed binary' \
@@ -49,6 +51,13 @@ image:
 judge:
 	@test -n "$(DIR)" || { echo 'missing DIR, for example: make judge DIR=output/<slug>'; exit 2; }
 	$(CARGO) run --release -- judge "$(DIR)"
+
+score:
+	@test -n "$(DIR)" || { echo 'missing DIR, for example: make score DIR=output/<slug>'; exit 2; }
+	$(CARGO) run --release -- score "$(DIR)"
+
+backfill:
+	scripts/backfill-history.sh $(ARGS)
 
 render:
 	@test -n "$(DIR)" || { echo 'missing DIR, for example: make render DIR=output/<slug>'; exit 2; }

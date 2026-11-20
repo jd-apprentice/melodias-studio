@@ -5,6 +5,7 @@ mod config;
 mod judge;
 mod media;
 mod pipeline;
+mod score;
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, IsTerminal, Write};
@@ -16,7 +17,7 @@ use crossterm::style::Stylize;
 
 use pipeline::{Msg, Selection, State};
 
-const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias image <dir>      (regenerate the thumbnail of a run)\n       melodias judge <dir>      (review a finished run with OpenRouter)\n       melodias render <dir>     (produced video with Remotion)\n       melodias video <dir>      (fast video with ffmpeg)";
+const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias image <dir>      (regenerate the thumbnail of a run)\n       melodias judge <dir>      (review a finished run with the judge)\n       melodias score <dir>      (score a finished run, no GPU)\n       melodias render <dir>     (produced video with Remotion)\n       melodias video <dir>      (fast video with ffmpeg)";
 
 fn main() -> io::Result<()> {
     let cfg = config::Config::from_env();
@@ -33,6 +34,9 @@ fn main() -> io::Result<()> {
     }
     if args.first().is_some_and(|arg| arg == "judge") {
         return run_judge(cfg, &args);
+    }
+    if args.first().is_some_and(|arg| arg == "score") {
+        return run_score(cfg, &args);
     }
     if args.first().is_some_and(|arg| arg == "render") {
         return run_render(cfg, &args);
@@ -149,6 +153,117 @@ fn run_headless(cfg: config::Config, args: &[String]) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Scores a finished run with the deterministic rubric: every candidate and
+/// the final pair. No GPU, no cloud, and the only write is work/score.json.
+fn run_score(cfg: config::Config, args: &[String]) -> io::Result<()> {
+    let as_json = args.iter().any(|arg| arg == "--json");
+    let Some(target) = args.get(1).filter(|arg| !arg.starts_with("--")) else {
+        eprintln!("usage: melodias score <output-dir> [--json]");
+        std::process::exit(2);
+    };
+    let requested = PathBuf::from(target);
+    let dir = if requested.is_dir() {
+        requested
+    } else {
+        cfg.out_dir.join(target)
+    };
+    let dir = std::fs::canonicalize(&dir)?;
+    let run = score::score_run(&dir).map_err(|error| io::Error::other(format!("{error:#}")))?;
+    let work = dir.join("work");
+    std::fs::create_dir_all(&work)?;
+    std::fs::write(work.join("score.json"), serde_json::to_vec_pretty(&run)?)?;
+    if as_json {
+        println!("{}", serde_json::to_string_pretty(&run)?);
+        return Ok(());
+    }
+    print_score(&run);
+    println!("wrote {}", work.join("score.json").display());
+    Ok(())
+}
+
+fn print_score(run: &score::RunScore) {
+    println!("score: {}", run.dir);
+    for candidate in &run.images {
+        println!(
+            "  image {:>2} {:>5.1}  {}{}",
+            candidate.index,
+            candidate.score,
+            file_name(&candidate.file),
+            if candidate.selected {
+                "  (selected)"
+            } else {
+                ""
+            }
+        );
+    }
+    for candidate in &run.audios {
+        println!(
+            "  audio {:>2} {:>5.1}  {}",
+            candidate.index,
+            candidate.score,
+            file_name(&candidate.file)
+        );
+    }
+    println!(
+        "final: image {:.1} and audio {:.1}",
+        run.final_image.score, run.final_audio.score
+    );
+    let editorial = run
+        .editorial
+        .map(|value| format!("{value:.1}"))
+        .unwrap_or_else(|| "-".to_string());
+    println!(
+        "technical {:.1} · editorial {} · total {:.1} · {}",
+        run.technical,
+        editorial,
+        run.total,
+        if run.accepted {
+            "accepted"
+        } else {
+            "below target"
+        }
+    );
+    if !run.gates.is_empty() {
+        println!("gates");
+        for gate in &run.gates {
+            println!("  {}  {}", gate.code, gate.message);
+        }
+    }
+    let mut findings: Vec<&score::Finding> = run
+        .final_image
+        .findings
+        .iter()
+        .chain(run.final_audio.findings.iter())
+        .collect();
+    findings.sort_by(|a, b| a.delta.total_cmp(&b.delta));
+    if !findings.is_empty() {
+        println!("findings");
+        for finding in findings.iter().take(6) {
+            println!(
+                "  {:<14} {:>6.1}  {}",
+                finding.code, finding.delta, finding.message
+            );
+        }
+    }
+    let skipped: Vec<&str> = run
+        .final_image
+        .skipped
+        .iter()
+        .chain(run.final_audio.skipped.iter())
+        .copied()
+        .collect();
+    if !skipped.is_empty() {
+        println!("not evaluated: {}", skipped.join(", "));
+    }
+}
+
+fn file_name(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string())
 }
 
 /// Runs the OpenRouter judge on the candidates of a finished run.

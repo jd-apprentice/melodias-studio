@@ -74,6 +74,21 @@ melodias judge output/<slug>
 make judge DIR=output/<slug>
 ```
 
+### Score
+
+`melodias score <dir>` applies the deterministic rubric to a finished run without a GPU or a cloud call. It scores every thumbnail in the pool, every draft and the final pair, prints the per-candidate scores with the worst findings, and writes `work/score.json`.
+
+```bash
+melodias score output/<slug>
+melodias score output/<slug> --json
+# or
+make score DIR=output/<slug>
+```
+
+The image side is palette, contrast at 168 px, text, glow and saturation. The audio side is loudness, true peak, spectral centroid, energy above 5 kHz, build, silence and length. The run score is 60 % technical and 40 % editorial (the judge verdict, when it exists). A run is accepted at 80 total, 85 technical and 70 editorial; without a verdict, the total equals the technical score.
+
+The text check uses `tesseract`. Without it, `IMG_TEXT` is skipped and the image side is renormalized over the remaining metrics.
+
 ### Produced video with Remotion
 
 For the richer composition (bokeh overlays, birds, audio-reactive bars, channel label):

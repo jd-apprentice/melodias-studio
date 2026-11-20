@@ -40,4 +40,4 @@ node ~/.agents/skills/archify/bin/archify.mjs finalize architecture docs/archite
 - **The LLM writes the thumbnail prompt.** The vibe goes in as a concept and comes back as an English prompt, with the pixel-art style pinned in the system prompt.
 - **Stages fail loudly and stop the run.** Each step reports its own error in the log so you know which service to look at.
 
-The proposed next step, candidate pools with local critics and an optional cloud judge, lives in [adversary-review.md](../adversary-review.md).
+The candidate pools, the optional cloud judge and the scoring work are specified in the [RFCs](../rfcs/README.md): [0001](../rfcs/0001-adversary-review.md) for the review and assembly, [0002](../rfcs/0002-deterministic-scoring.md) for the deterministic score and the feedback loop.
