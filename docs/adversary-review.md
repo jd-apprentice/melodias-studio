@@ -264,6 +264,7 @@ The same keys belong in `config.toml` once the feature exists. Image seeds and s
 - The 15 s clip may not represent the full three minute arc. The judge ranks timbre and energy; the final take still passes the hard gates.
 - The Ultra judge is blind and deaf by design; if the omni model is unavailable, there is no perception layer.
 - Rate limits on free models. Cap the calls per run and fail-open.
+- OpenRouter charges the audio input path with a $0.50 minimum balance even on a free model. Images work without balance; audio is the one that needs credit.
 - Privacy: images and clips leave the machine. Keep the judge opt-in and never send the source URL.
 - Cost and time grow linearly with the candidates, and Remotion adds about 12 minutes on top.
 - Judge reliability: strict schema, one revision, and fail-open to the local pick.

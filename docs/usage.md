@@ -55,7 +55,17 @@ export OPENROUTER_API_KEY="sk-or-..."
 JUDGE_ENABLED=true melodias
 ```
 
+OpenRouter requires at least $0.50 in balance for audio inputs, even on the free omni model. If the judge returns a 402 about audio, add credit at `openrouter.ai/settings/credits`; image-only requests do not need it.
+
 The key can also live in `~/.config/melodias-studio/config.toml`. If it is missing, the judge is skipped and the manual review still works.
+
+To review a finished run without regenerating anything:
+
+```bash
+melodias judge output/<slug>
+# or
+make judge DIR=output/<slug>
+```
 
 ### Produced video with Remotion
 

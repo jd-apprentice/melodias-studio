@@ -49,7 +49,9 @@ cp config.example.toml ~/.config/melodias-studio/config.toml
 | `FADE_OUT_SEC` | `3.0` | master fade-out |
 | `LOUDNESS_LUFS` | `-15` | master loudness target |
 
-The judge is optional. With `JUDGE_ENABLED=true` and `OPENROUTER_API_KEY` set, the run compresses the candidates to 768 px JPEGs and 15 s mono clips, sends them to the omni model, and asks the reasoning model for the final pair. The review screen opens with the judge's suggestion preselected; `Enter` accepts it. If the key is missing, the API fails or the JSON is invalid, the run falls back to the manual pick and logs it.
+The judge is optional. OpenRouter requires at least **$0.50 of balance for audio inputs**, even on a free model; image-only requests work without balance. Add credit at `openrouter.ai/settings/credits` if you want the judge to hear the clips.
+
+With `JUDGE_ENABLED=true` and `OPENROUTER_API_KEY` set, the run compresses the candidates to 768 px JPEGs and 15 s mono clips, sends them to the omni model, and asks the reasoning model for the final pair. The review screen opens with the judge's suggestion preselected; `Enter` accepts it. If the key is missing, the API fails or the JSON is invalid, the run falls back to the manual pick and logs it.
 
 The key is read from the environment of the process that runs `melodias` (or from `openrouter_api_key` in this file). It does not belong in the `video/` Remotion project, which only renders local assets.
 

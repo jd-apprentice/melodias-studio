@@ -16,7 +16,7 @@ use crossterm::style::Stylize;
 
 use pipeline::{Msg, Selection, State};
 
-const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias image <dir>      (regenerate the thumbnail of a run)\n       melodias render <dir>     (produced video with Remotion)\n       melodias video <dir>      (fast video with ffmpeg)";
+const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias image <dir>      (regenerate the thumbnail of a run)\n       melodias judge <dir>      (review a finished run with OpenRouter)\n       melodias render <dir>     (produced video with Remotion)\n       melodias video <dir>      (fast video with ffmpeg)";
 
 fn main() -> io::Result<()> {
     let cfg = config::Config::from_env();
@@ -30,6 +30,9 @@ fn main() -> io::Result<()> {
     }
     if args.first().is_some_and(|arg| arg == "image") {
         return run_image(cfg, &args);
+    }
+    if args.first().is_some_and(|arg| arg == "judge") {
+        return run_judge(cfg, &args);
     }
     if args.first().is_some_and(|arg| arg == "render") {
         return run_render(cfg, &args);
@@ -145,6 +148,63 @@ fn run_headless(cfg: config::Config, args: &[String]) -> io::Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+/// Runs the OpenRouter judge on the candidates of a finished run.
+fn run_judge(cfg: config::Config, args: &[String]) -> io::Result<()> {
+    let [_, target] = args else {
+        eprintln!("usage: melodias judge <output-dir>");
+        std::process::exit(2);
+    };
+    if cfg.openrouter_api_key.trim().is_empty() {
+        eprintln!("OPENROUTER_API_KEY is empty");
+        std::process::exit(2);
+    }
+    let requested = PathBuf::from(target);
+    let dir = if requested.is_dir() {
+        requested
+    } else {
+        cfg.out_dir.join(target)
+    };
+    let dir = std::fs::canonicalize(&dir)?;
+    let meta: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("meta.json"))?)?;
+    let vibe = meta["vibe"]
+        .as_str()
+        .unwrap_or("original 8-bit instrumental");
+    let candidates = |value: &serde_json::Value| -> Vec<pipeline::Candidate> {
+        value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|candidate| {
+                let file = PathBuf::from(candidate["file"].as_str()?);
+                let file = dir
+                    .join("candidates")
+                    .join(file.file_name().unwrap_or_default());
+                Some(pipeline::Candidate {
+                    file,
+                    seed: candidate["seed"].as_u64()? as u32,
+                })
+            })
+            .collect()
+    };
+    let images = candidates(&meta["image"]["candidates"]);
+    let audios = candidates(&meta["audio"]["draft"]["candidates"]);
+    if images.is_empty() || audios.is_empty() {
+        eprintln!("meta.json has no image or audio candidates");
+        std::process::exit(2);
+    }
+    let verdict = judge::decide(&cfg, vibe, &images, &audios, &dir.join("work"))
+        .map_err(|error| io::Error::other(format!("{error:#}")))?;
+    println!(
+        "judge: image {} · audio {} · score {} · {}",
+        verdict.image + 1,
+        verdict.audio + 1,
+        verdict.score,
+        verdict.reason
+    );
+    println!("raw: {}", dir.join("work/judge/verdict.json").display());
     Ok(())
 }
 

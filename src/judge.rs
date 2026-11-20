@@ -223,7 +223,12 @@ fn chat(cfg: &Config, model: &str, content: Vec<Value>) -> Result<Value> {
     let status = response.status();
     let body = response.text().context("reading the OpenRouter response")?;
     if !status.is_success() {
-        bail!("OpenRouter {status}: {}", truncate(&body, 500));
+        let hint = if status.as_u16() == 402 && body.contains("audio") {
+            " (audio input requires at least $0.50 in OpenRouter balance)"
+        } else {
+            ""
+        };
+        bail!("OpenRouter {status}{hint}: {}", truncate(&body, 500));
     }
     let parsed: Value = serde_json::from_str(&body).context("OpenRouter returned invalid JSON")?;
     let content = &parsed["choices"][0]["message"]["content"];
