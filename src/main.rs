@@ -2,6 +2,7 @@ mod app;
 mod banner;
 mod clients;
 mod config;
+mod judge;
 mod media;
 mod pipeline;
 
@@ -9,13 +10,13 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
+use std::time::Duration;
 
 use crossterm::style::Stylize;
 
-use pipeline::{Msg, State};
+use pipeline::{Msg, Selection, State};
 
-const USAGE: &str =
-    "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)";
+const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias image <dir>      (regenerate the thumbnail of a run)\n       melodias judge <dir>      (review a finished run with OpenRouter)\n       melodias render <dir>     (produced video with Remotion)\n       melodias video <dir>      (fast video with ffmpeg)";
 
 fn main() -> io::Result<()> {
     let cfg = config::Config::from_env();
@@ -26,6 +27,18 @@ fn main() -> io::Result<()> {
     {
         println!("{USAGE}");
         return Ok(());
+    }
+    if args.first().is_some_and(|arg| arg == "image") {
+        return run_image(cfg, &args);
+    }
+    if args.first().is_some_and(|arg| arg == "judge") {
+        return run_judge(cfg, &args);
+    }
+    if args.first().is_some_and(|arg| arg == "render") {
+        return run_render(cfg, &args);
+    }
+    if args.first().is_some_and(|arg| arg == "video") {
+        return run_video(cfg, &args);
     }
     if !args.is_empty() {
         return run_headless(cfg, &args);
@@ -65,12 +78,53 @@ fn run_headless(cfg: config::Config, args: &[String]) -> io::Result<()> {
     out.line(separator, colored);
 
     let (tx, rx) = channel();
-    pipeline::spawn(cfg, url.trim().to_string(), vibe.trim().to_string(), tx);
+    let decisions = pipeline::spawn(cfg, url.trim().to_string(), vibe.trim().to_string(), tx);
 
     for msg in rx {
         match msg {
             Msg::Stage(idx, state) => out.stage(idx, state),
             Msg::Log(text) => out.log_line(&text),
+            Msg::Choose(request) => {
+                out.line("", None);
+                let pool = &request.pool;
+                let header = format!(
+                    "Review: {} images and {} audio drafts",
+                    pool.images.len(),
+                    pool.audios.len()
+                );
+                let colored = out
+                    .pretty
+                    .then(|| header.as_str().cyan().bold().to_string());
+                out.line(&header, colored);
+                for (index, candidate) in pool.images.iter().enumerate() {
+                    out.log_line(&format!(
+                        "image {}: {} (seed {})",
+                        index + 1,
+                        candidate.file.display(),
+                        candidate.seed
+                    ));
+                }
+                for (index, candidate) in pool.audios.iter().enumerate() {
+                    out.log_line(&format!(
+                        "audio {}: {} (seed {})",
+                        index + 1,
+                        candidate.file.display(),
+                        candidate.seed
+                    ));
+                }
+                if let Some(note) = &request.note {
+                    out.log_line(&format!("judge: {note}"));
+                }
+                let selection = request
+                    .suggestion
+                    .unwrap_or(Selection { image: 0, audio: 0 });
+                let _ = decisions.send(selection);
+                out.log_line(&format!(
+                    "selected image {} and audio draft {} (headless)",
+                    selection.image + 1,
+                    selection.audio + 1
+                ));
+            }
             Msg::Done(Ok(outcome)) => {
                 out.line("", None);
                 let line = format!(
@@ -83,6 +137,9 @@ fn run_headless(cfg: config::Config, args: &[String]) -> io::Result<()> {
                 let image = format!("✔ thumbnail · {}", outcome.image.display());
                 let colored = out.pretty.then(|| image.as_str().green().to_string());
                 out.line(&image, colored);
+                let video = format!("✔ video · {}", outcome.video.display());
+                let colored = out.pretty.then(|| video.as_str().green().to_string());
+                out.line(&video, colored);
                 return Ok(());
             }
             Msg::Done(Err(err)) => {
@@ -91,6 +148,235 @@ fn run_headless(cfg: config::Config, args: &[String]) -> io::Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+/// Runs the OpenRouter judge on the candidates of a finished run.
+fn run_judge(cfg: config::Config, args: &[String]) -> io::Result<()> {
+    let [_, target] = args else {
+        eprintln!("usage: melodias judge <output-dir>");
+        std::process::exit(2);
+    };
+    if !judge::enabled(&cfg) {
+        eprintln!(
+            "the judge has no API key: set OPENCODE_API_KEY (preferred) or OPENROUTER_API_KEY"
+        );
+        std::process::exit(2);
+    }
+    let requested = PathBuf::from(target);
+    let dir = if requested.is_dir() {
+        requested
+    } else {
+        cfg.out_dir.join(target)
+    };
+    let dir = std::fs::canonicalize(&dir)?;
+    let meta: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("meta.json"))?)?;
+    let vibe = meta["vibe"]
+        .as_str()
+        .unwrap_or("original 8-bit instrumental");
+    let candidates = |value: &serde_json::Value| -> Vec<pipeline::Candidate> {
+        value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|candidate| {
+                let file = PathBuf::from(candidate["file"].as_str()?);
+                let file = dir
+                    .join("candidates")
+                    .join(file.file_name().unwrap_or_default());
+                Some(pipeline::Candidate {
+                    file,
+                    seed: candidate["seed"].as_u64()? as u32,
+                })
+            })
+            .collect()
+    };
+    let images = candidates(&meta["image"]["candidates"]);
+    let audios = candidates(&meta["audio"]["draft"]["candidates"]);
+    if images.is_empty() || audios.is_empty() {
+        eprintln!("meta.json has no image or audio candidates");
+        std::process::exit(2);
+    }
+    let verdict = judge::decide(&cfg, vibe, &images, &audios, &dir.join("work"))
+        .map_err(|error| io::Error::other(format!("{error:#}")))?;
+    println!(
+        "judge: image {} · audio {} · score {} · {}",
+        verdict.image + 1,
+        verdict.audio + 1,
+        verdict.score,
+        verdict.reason
+    );
+    println!("raw: {}", dir.join("work/judge/verdict.json").display());
+    Ok(())
+}
+
+/// Renders the produced video with the Remotion project: overlay clips, an
+/// audio-reactive waveform and a slow zoom. Slower than ffmpeg.
+fn run_render(cfg: config::Config, args: &[String]) -> io::Result<()> {
+    let [_, target] = args else {
+        eprintln!("usage: melodias render <output-dir>");
+        std::process::exit(2);
+    };
+    let requested = PathBuf::from(target);
+    let dir = if requested.is_dir() {
+        requested
+    } else {
+        cfg.out_dir.join(target)
+    };
+    let dir = std::fs::canonicalize(&dir)?;
+    let image = dir.join("thumbnail.png");
+    let audio = dir.join("audio.mp3");
+    for path in [&image, &audio] {
+        if !path.is_file() {
+            eprintln!("missing {}", path.display());
+            std::process::exit(2);
+        }
+    }
+    let project = std::env::current_dir()?.join("video");
+    if !project.join("node_modules").is_dir() {
+        eprintln!("the Remotion project is not installed; run: cd video && pnpm install");
+        std::process::exit(2);
+    }
+    let current = project.join("public").join("current");
+    std::fs::create_dir_all(&current)?;
+    std::fs::copy(&image, current.join("thumbnail.png"))?;
+    std::fs::copy(&audio, current.join("audio.mp3"))?;
+    let duration =
+        media::duration_secs(&audio).map_err(|error| io::Error::other(format!("{error:#}")))?;
+    let props = project.join("props.json");
+    std::fs::write(
+        &props,
+        serde_json::to_vec(&serde_json::json!({
+            "durationSec": duration,
+            "channel": "melodias8bit",
+        }))?,
+    )?;
+    let output = dir.join("video.mp4");
+    if output.is_file() {
+        let _ = std::fs::copy(&output, dir.join("video-ffmpeg.mp4"));
+    }
+    let status = std::process::Command::new("pnpm")
+        .current_dir(&project)
+        .args([
+            "exec",
+            "remotion",
+            "render",
+            "src/index.ts",
+            "MelodiasVideo",
+        ])
+        .arg(&output)
+        .arg(format!("--props={}", props.display()))
+        .arg("--concurrency=4")
+        .status()?;
+    if !status.success() {
+        return Err(io::Error::other("remotion render failed"));
+    }
+    println!("video: {}", output.display());
+    Ok(())
+}
+
+/// Regenerates the thumbnail of a finished run from its stored prompt, keeping
+/// the chosen seed, then rebuilds the video. It only uses sd-server.
+fn run_image(cfg: config::Config, args: &[String]) -> io::Result<()> {
+    let [_, target] = args else {
+        eprintln!("usage: melodias image <output-dir>");
+        std::process::exit(2);
+    };
+    let requested = PathBuf::from(target);
+    let dir = if requested.is_dir() {
+        requested
+    } else {
+        cfg.out_dir.join(target)
+    };
+    let meta_path = dir.join("meta.json");
+    let text = std::fs::read_to_string(&meta_path)?;
+    let mut meta: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|error| io::Error::other(format!("invalid {}: {error}", meta_path.display())))?;
+    let prompt = meta["image_prompt"]
+        .as_str()
+        .ok_or_else(|| io::Error::other("meta.json has no image_prompt"))
+        .map(clients::sanitize_eye_prompt)?;
+    let selected = meta["image"]["selected"].as_u64().unwrap_or(1) as usize;
+    let count = meta["image"]["candidates"]
+        .as_array()
+        .map(|candidates| candidates.len() + 1)
+        .unwrap_or(1);
+    let seed = meta["image"]["candidates"]
+        .as_array()
+        .and_then(|candidates| candidates.get(selected.saturating_sub(1)))
+        .and_then(|candidate| candidate["seed"].as_u64())
+        .unwrap_or(1) as u32;
+    let candidate = dir.join("candidates").join(format!("image-{count:02}.png"));
+
+    media::ssh_run(&cfg, &cfg.audio_stop_cmd)
+        .map_err(|error| io::Error::other(format!("{error:#}")))?;
+    media::ssh_run(&cfg, &cfg.sd_start_cmd)
+        .map_err(|error| io::Error::other(format!("{error:#}")))?;
+    let generated = (|| -> anyhow::Result<()> {
+        clients::wait_sd(&cfg, Duration::from_secs(180))?;
+        let bytes = clients::generate_image(&cfg, &prompt, seed)?;
+        if let Some(parent) = candidate.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&candidate, &bytes)?;
+        media::png_size(&candidate)?;
+        Ok(())
+    })();
+    let stopped = media::ssh_run(&cfg, &cfg.sd_stop_cmd);
+    generated.map_err(|error| io::Error::other(format!("{error:#}")))?;
+    if let Err(error) = stopped {
+        eprintln!("warning: sd-server: {error:#}");
+    }
+
+    let thumbnail = dir.join("thumbnail.png");
+    let backup = dir.join("thumbnail-old.png");
+    if thumbnail.is_file() {
+        std::fs::copy(&thumbnail, &backup)?;
+    }
+    std::fs::copy(&candidate, &thumbnail)?;
+
+    if let Some(candidates) = meta["image"]["candidates"].as_array_mut() {
+        candidates.push(serde_json::json!({
+            "file": candidate.display().to_string(),
+            "seed": seed,
+        }));
+    }
+    meta["image"]["selected"] = serde_json::json!(count);
+    meta["image"]["file"] = serde_json::json!(thumbnail.display().to_string());
+    meta["image_prompt"] = serde_json::json!(prompt);
+    std::fs::write(&meta_path, serde_json::to_vec_pretty(&meta)?)?;
+
+    println!("image: {}", thumbnail.display());
+    let audio = dir.join("audio.mp3");
+    let video = media::assemble_video(&cfg, &thumbnail, &audio, &dir)
+        .map_err(|error| io::Error::other(format!("{error:#}")))?;
+    println!("video: {}", video.display());
+    Ok(())
+}
+
+/// Assembles the video of a finished run without touching the GPU.
+fn run_video(cfg: config::Config, args: &[String]) -> io::Result<()> {
+    let [_, target] = args else {
+        eprintln!("usage: melodias video <output-dir>");
+        std::process::exit(2);
+    };
+    let requested = std::path::PathBuf::from(target);
+    let dir = if requested.is_dir() {
+        requested
+    } else {
+        cfg.out_dir.join(target)
+    };
+    let image = dir.join("thumbnail.png");
+    let audio = dir.join("audio.mp3");
+    for path in [&image, &audio] {
+        if !path.is_file() {
+            eprintln!("missing {}", path.display());
+            std::process::exit(2);
+        }
+    }
+    let video = media::assemble_video(&cfg, &image, &audio, &dir)
+        .map_err(|error| io::Error::other(format!("{error:#}")))?;
+    println!("video: {}", video.display());
     Ok(())
 }
 
@@ -177,8 +463,8 @@ mod tests {
         out.log_line("image prompt: pixel art castle");
 
         let text = std::fs::read_to_string(&path).unwrap();
-        assert!(text.contains("▶ 1/9 Image prompt"));
-        assert!(text.contains("✔ 1/9 Image prompt"));
+        assert!(text.contains("▶ 1/11 Image prompt"));
+        assert!(text.contains("✔ 1/11 Image prompt"));
         assert!(text.contains("   · image prompt: pixel art castle"));
         let _ = std::fs::remove_file(path);
     }

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "melodias-studio · from YouTube to thumbnail and song",
+    "title": "melodias-studio · original 8-bit content",
     "locale": "en",
     "output": "docs/architecture/arquitectura.html",
     "quality_profile": "showcase",
@@ -10,7 +10,7 @@
       "url": "https://github.com/jd-apprentice/melodias-studio",
       "provider": "github",
       "link_mode": "web",
-      "revision": "79bf5115d65c04a04b71c42894075fdae078c2d5"
+      "revision": "c464808c4bfaca716733389a3ad7803ede7f28e4"
     },
     "legend": {
       "entries": {
@@ -25,7 +25,7 @@
       "id": "operador",
       "type": "external",
       "label": "Operator",
-      "sublabel": "URL + vibe",
+      "sublabel": "reference + vibe",
       "pos": [
         30,
         282
@@ -37,15 +37,15 @@
       "sources": [
         {
           "path": "src/app.rs",
-          "line": 22,
-          "end_line": 35,
+          "line": 37,
+          "end_line": 53,
           "label": "input fields"
         },
         {
           "path": "src/app.rs",
-          "line": 55,
-          "end_line": 72,
-          "label": "start needs URL and vibe"
+          "line": 74,
+          "end_line": 93,
+          "label": "start needs reference and vibe"
         }
       ]
     },
@@ -65,14 +65,14 @@
       "sources": [
         {
           "path": "src/app.rs",
-          "line": 164,
-          "end_line": 209,
+          "line": 265,
+          "end_line": 314,
           "label": "key loop"
         },
         {
           "path": "src/app.rs",
-          "line": 211,
-          "end_line": 530,
+          "line": 316,
+          "end_line": 349,
           "label": "screen layout"
         }
       ]
@@ -81,7 +81,7 @@
       "id": "pipeline",
       "type": "backend",
       "label": "pipeline.rs",
-      "sublabel": "9 sequential stages",
+      "sublabel": "11 stages · pools + judge + video",
       "pos": [
         470,
         270
@@ -94,13 +94,13 @@
         {
           "path": "src/pipeline.rs",
           "line": 10,
-          "end_line": 20,
+          "end_line": 22,
           "label": "stage order"
         },
         {
           "path": "src/pipeline.rs",
-          "line": 82,
-          "end_line": 239,
+          "line": 116,
+          "end_line": 469,
           "label": "run()"
         }
       ]
@@ -127,23 +127,23 @@
         },
         {
           "path": "src/media.rs",
-          "line": 96,
-          "end_line": 169,
-          "label": "RMS selection"
+          "line": 206,
+          "end_line": 238,
+          "label": "master"
         },
         {
           "path": "src/media.rs",
-          "line": 206,
-          "end_line": 237,
-          "label": "master and loudnorm"
+          "line": 427,
+          "end_line": 489,
+          "label": "video assembly"
         }
       ]
     },
     {
       "id": "youtube",
       "type": "external",
-      "label": "YouTube",
-      "sublabel": "source song",
+      "label": "Reference source",
+      "sublabel": "YouTube URL",
       "pos": [
         500,
         600
@@ -155,8 +155,8 @@
       "sources": [
         {
           "path": "src/media.rs",
-          "line": 39,
-          "end_line": 58,
+          "line": 73,
+          "end_line": 92,
           "label": "yt-dlp invocation"
         }
       ]
@@ -178,13 +178,13 @@
         {
           "path": "src/clients.rs",
           "line": 86,
-          "end_line": 123,
+          "end_line": 130,
           "label": "image prompt"
         },
         {
           "path": "deploy/serve-llm.sh",
-          "line": 16,
-          "end_line": 19,
+          "line": 12,
+          "end_line": 21,
           "label": "model and port"
         }
       ]
@@ -205,14 +205,14 @@
       "sources": [
         {
           "path": "src/clients.rs",
-          "line": 161,
-          "end_line": 182,
+          "line": 203,
+          "end_line": 224,
           "label": "image generation"
         },
         {
           "path": "deploy/serve-sd.sh",
-          "line": 16,
-          "end_line": 23,
+          "line": 12,
+          "end_line": 27,
           "label": "model load"
         }
       ]
@@ -233,13 +233,13 @@
       "sources": [
         {
           "path": "src/clients.rs",
-          "line": 125,
-          "end_line": 159,
+          "line": 154,
+          "end_line": 201,
           "label": "take with reference"
         },
         {
           "path": "deploy/serve-audio.sh",
-          "line": 16,
+          "line": 12,
           "end_line": 18,
           "label": "startup"
         },
@@ -255,7 +255,7 @@
       "id": "salida",
       "type": "database",
       "label": "output/<slug>",
-      "sublabel": "audio.mp3 · PNG · meta.json",
+      "sublabel": "audio.mp3 · PNG · video · meta",
       "pos": [
         40,
         600
@@ -267,9 +267,37 @@
       "sources": [
         {
           "path": "src/pipeline.rs",
-          "line": 200,
-          "end_line": 231,
-          "label": "copy and metadata"
+          "line": 368,
+          "end_line": 469,
+          "label": "master, video and metadata"
+        }
+      ]
+    },
+    {
+      "id": "judge",
+      "type": "cloud",
+      "label": "OpenCode Go judge",
+      "sublabel": "Gemini 4 Argon · one call",
+      "pos": [
+        470,
+        60
+      ],
+      "size": [
+        180,
+        64
+      ],
+      "sources": [
+        {
+          "path": "src/judge.rs",
+          "line": 95,
+          "end_line": 186,
+          "label": "decide: provider, evidence, verdict"
+        },
+        {
+          "path": "src/judge.rs",
+          "line": 349,
+          "end_line": 400,
+          "label": "generateContent request"
         }
       ]
     }
@@ -328,7 +356,7 @@
       "id": "media-youtube",
       "from": "media",
       "to": "youtube",
-      "label": "yt-dlp WAV"
+      "label": "reference WAV"
     },
     {
       "id": "media-audio",
@@ -341,6 +369,14 @@
       "from": "pipeline",
       "to": "salida",
       "label": "audio.mp3 + meta"
+    },
+    {
+      "id": "pipeline-judge",
+      "from": "pipeline",
+      "to": "judge",
+      "label": "evidence → verdict",
+      "fromSide": "top",
+      "toSide": "bottom"
     }
   ],
   "cards": [
@@ -366,20 +402,21 @@
     },
     {
       "dot": "emerald",
-      "title": "Master and output",
+      "title": "Pools, review and output",
       "items": [
-        "audio.mp3, 320 kbps, -15 LUFS, 1.5 s fade-in and 3 s fade-out",
-        "Every track is instrumental; vocals are in the negative prompt",
-        "The PNG is validated by reading its header",
-        "meta.json stores the seed, prompt and parameters",
-        "work/ keeps the source, reference and take"
+        "candidates/ keeps N images and N audio drafts",
+        "3 images at 20 steps and 3 drafts at 60 s by default",
+        "The judge (Gemini 4 Argon via OpenCode Go) preselects the pair; the TUI can override it",
+        "video.mp4 with ffmpeg or Remotion (overlays, waveform, branding)",
+        "melodias image/render/video rebuild pieces without the GPU",
+        "meta.json stores candidates, seeds, judge and selection"
       ]
     },
     {
       "dot": "violet",
-      "title": "Source and reference",
+      "title": "Reference source",
       "items": [
-        "yt-dlp extracts a 48 kHz stereo WAV",
+        "yt-dlp pulls the reference as a 48 kHz stereo WAV",
         "The reference is the minute with the highest RMS energy",
         "scp leaves it in /models/ref before the audio stage",
         "The reference conditions timbre, not the melody"

@@ -88,8 +88,9 @@ pub fn ask_image_prompt(cfg: &Config, vibe: &str) -> Result<String> {
     let system = format!(
         "You write prompts for a text-to-image model. Reply with ONE line of at most 60 \
 words, in English, no quotes, no explanation. Describe a 16:9 YouTube thumbnail in {} \
-style: one anime character in a scene, detailed background, nostalgic cozy mood. Never \
-mention audio, BPM, tempo, music, songs, text or watermarks.",
+style: one anime character in a scene, detailed background, nostalgic cozy mood. The \
+character has natural eyes with a visible iris and pupil; never glowing, neon or empty \
+eyes. Never mention audio, BPM, tempo, music, songs, text or watermarks.",
         cfg.image_style
     );
     let user =
@@ -122,10 +123,35 @@ mention audio, BPM, tempo, music, songs, text or watermarks.",
     if text.is_empty() {
         bail!("the LLM returned an empty prompt");
     }
-    Ok(text)
+    Ok(sanitize_eye_prompt(&text))
 }
 
-pub fn generate_audio(cfg: &Config, prompt: &str, reference: &str, seed: u32) -> Result<Vec<u8>> {
+/// The 4B likes to write "glowing red eyes" for dramatic prompts, and the image
+/// model renders it literally. Keep the eyes natural without touching the rest
+/// of the scene.
+pub fn sanitize_eye_prompt(prompt: &str) -> String {
+    prompt
+        .replace("glowing red eyes", "soft green eyes")
+        .replace("Glowing red eyes", "soft green eyes")
+        .replace("glowing eyes", "soft eyes")
+        .replace("Glowing eyes", "soft eyes")
+        .replace("neon eyes", "soft eyes")
+        .replace("empty eyes", "soft eyes")
+        .replace("red eyes", "soft green eyes")
+}
+
+/// One take: drafts and the final share the same request shape, only the
+/// duration, steps and sampler change.
+pub struct AudioRequest<'a> {
+    pub prompt: &'a str,
+    pub reference: &'a str,
+    pub seed: u32,
+    pub duration_sec: u32,
+    pub steps: u32,
+    pub sampler: &'a str,
+}
+
+pub fn generate_audio(cfg: &Config, take: AudioRequest<'_>) -> Result<Vec<u8>> {
     let url = format!("{}/v1/tasks/run", cfg.audio_url.trim_end_matches('/'));
     // The server only forwards the nested `options` object to the ACE-Step
     // parser. duration_sec, reference_audio and sampler_mode are ignored when
@@ -134,14 +160,14 @@ pub fn generate_audio(cfg: &Config, prompt: &str, reference: &str, seed: u32) ->
         "model": cfg.audio_model,
         "request": {
             "route": "text2music",
-            "text": prompt,
-            "seed": seed,
-            "num_inference_steps": cfg.steps,
+            "text": take.prompt,
+            "seed": take.seed,
+            "num_inference_steps": take.steps,
             "guidance_scale": cfg.guidance,
             "options": {
-                "reference_audio": reference,
-                "duration_sec": cfg.duration_sec,
-                "sampler_mode": cfg.sampler,
+                "reference_audio": take.reference,
+                "duration_sec": take.duration_sec,
+                "sampler_mode": take.sampler,
                 "negative_prompt": cfg.audio_negative_prompt
             }
         }
@@ -161,8 +187,22 @@ pub fn generate_audio(cfg: &Config, prompt: &str, reference: &str, seed: u32) ->
         .context("invalid base64 audio")
 }
 
-pub fn generate_image(cfg: &Config, prompt: &str) -> Result<Vec<u8>> {
+/// sd-server strips this block before generation. It carries the native
+/// stable-diffusion.cpp fields that the OpenAI endpoint does not expose.
+fn with_extra_args(prompt: &str, seed: u32, steps: u32, negative_prompt: &str) -> String {
+    let mut extra = json!({
+        "seed": seed,
+        "sample_params": { "sample_steps": steps }
+    });
+    if !negative_prompt.trim().is_empty() {
+        extra["negative_prompt"] = json!(negative_prompt);
+    }
+    format!("{prompt} <sd_cpp_extra_args>{extra}</sd_cpp_extra_args>")
+}
+
+pub fn generate_image(cfg: &Config, prompt: &str, seed: u32) -> Result<Vec<u8>> {
     let url = format!("{}/v1/images/generations", cfg.sd_url.trim_end_matches('/'));
+    let prompt = with_extra_args(prompt, seed, cfg.image_steps, &cfg.image_negative_prompt);
     let body = json!({
         "prompt": prompt,
         "n": 1,
@@ -182,4 +222,25 @@ pub fn generate_image(cfg: &Config, prompt: &str) -> Result<Vec<u8>> {
     base64::engine::general_purpose::STANDARD
         .decode(b64)
         .context("invalid base64 image")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn glowing_eyes_are_sanitized() {
+        let prompt = sanitize_eye_prompt("a girl with glowing red eyes in a forest");
+        assert_eq!(prompt, "a girl with soft green eyes in a forest");
+    }
+
+    #[test]
+    fn image_extra_args_carry_seed_and_steps() {
+        let prompt = with_extra_args("pixel art", 42, 12, "glowing eyes");
+        assert!(prompt.starts_with("pixel art <sd_cpp_extra_args>"));
+        assert!(prompt.contains("\"seed\":42"));
+        assert!(prompt.contains("\"sample_steps\":12"));
+        assert!(prompt.contains("\"negative_prompt\":\"glowing eyes\""));
+        assert!(prompt.ends_with("</sd_cpp_extra_args>"));
+    }
 }

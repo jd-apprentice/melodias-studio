@@ -27,6 +27,8 @@ pub struct Config {
     pub audio_style: String,
     /// Fixed style for the thumbnail prompt, pinned in the system message.
     pub image_style: String,
+    /// Negative prompt for sd-server, sent through sd_cpp_extra_args.
+    pub image_negative_prompt: String,
     /// Steers ACE-Step away from voices; the channel only publishes instrumentals.
     pub audio_negative_prompt: String,
     /// Label shown in the header and the splash, for example "Tesla P40".
@@ -37,6 +39,28 @@ pub struct Config {
     pub sampler: String,
     pub width: u32,
     pub height: u32,
+    pub video_width: u32,
+    pub video_height: u32,
+    pub judge_enabled: bool,
+    /// `auto`, `opencode` or `openrouter`.
+    pub judge_provider: String,
+    pub opencode_api_key: String,
+    pub openrouter_api_key: String,
+    /// Model id for the OpenCode Go backend (Gemini native API).
+    pub judge_model: String,
+    pub judge_omni_model: String,
+    pub judge_reasoner_model: String,
+    pub judge_image_px: u32,
+    pub judge_audio_sec: u32,
+    pub judge_timeout_sec: u64,
+    pub image_steps: u32,
+    /// Optional fixed seed to reproduce an image candidate.
+    pub image_seed: Option<u32>,
+    /// Number of candidates per modality.
+    pub candidates: u32,
+    pub audio_draft_sec: u32,
+    pub audio_draft_steps: u32,
+    pub audio_draft_sampler: String,
     pub reference_sec: u32,
     pub fade_in_sec: f64,
     pub fade_out_sec: f64,
@@ -94,6 +118,11 @@ impl Config {
             ),
             audio_style: pick(env("AUDIO_STYLE"), file.audio_style, "8-bit chiptune"),
             image_style: pick(env("IMAGE_STYLE"), file.image_style, "8-bit pixel art"),
+            image_negative_prompt: pick(
+                env("IMAGE_NEGATIVE_PROMPT"),
+                file.image_negative_prompt,
+                "glowing eyes, neon eyes, empty eyes, oversaturated eyes, text, watermark, signature, extra fingers, deformed hands",
+            ),
             audio_negative_prompt: pick(
                 env("AUDIO_NEGATIVE_PROMPT"),
                 file.audio_negative_prompt,
@@ -106,6 +135,46 @@ impl Config {
             sampler: pick(env("SAMPLER"), file.sampler, "heun"),
             width: pick_parsed(env("WIDTH"), file.width, 1280),
             height: pick_parsed(env("HEIGHT"), file.height, 720),
+            video_width: pick_parsed(env("VIDEO_WIDTH"), file.video_width, 1920),
+            video_height: pick_parsed(env("VIDEO_HEIGHT"), file.video_height, 1080),
+            // On by default: the judge itself is skipped when no key is set.
+            judge_enabled: env("JUDGE_ENABLED")
+                .map(|value| parse_bool(&value))
+                .or(file.judge_enabled)
+                .unwrap_or(true),
+            judge_provider: pick(env("JUDGE_PROVIDER"), file.judge_provider, "auto"),
+            opencode_api_key: env("OPENCODE_API_KEY")
+                .or(file.opencode_api_key)
+                .unwrap_or_default(),
+            openrouter_api_key: env("OPENROUTER_API_KEY")
+                .or(file.openrouter_api_key)
+                .unwrap_or_default(),
+            judge_model: pick(env("JUDGE_MODEL"), file.judge_model, "gemini-4-argon"),
+            judge_omni_model: pick(
+                env("JUDGE_OMNI_MODEL"),
+                file.judge_omni_model,
+                "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+            ),
+            judge_reasoner_model: pick(
+                env("JUDGE_REASONER_MODEL"),
+                file.judge_reasoner_model,
+                "nvidia/nemotron-3-ultra-550b-a55b:free",
+            ),
+            judge_image_px: pick_parsed(env("JUDGE_IMAGE_PX"), file.judge_image_px, 768),
+            judge_audio_sec: pick_parsed(env("JUDGE_AUDIO_SEC"), file.judge_audio_sec, 15),
+            judge_timeout_sec: pick_parsed(env("JUDGE_TIMEOUT_SEC"), file.judge_timeout_sec, 300),
+            image_steps: pick_parsed(env("IMAGE_STEPS"), file.image_steps, 20),
+            image_seed: env("IMAGE_SEED")
+                .and_then(|value| value.parse().ok())
+                .or(file.image_seed),
+            candidates: pick_parsed(env("CANDIDATES"), file.candidates, 3),
+            audio_draft_sec: pick_parsed(env("AUDIO_DRAFT_SEC"), file.audio_draft_sec, 60),
+            audio_draft_steps: pick_parsed(env("AUDIO_DRAFT_STEPS"), file.audio_draft_steps, 16),
+            audio_draft_sampler: pick(
+                env("AUDIO_DRAFT_SAMPLER"),
+                file.audio_draft_sampler,
+                "euler",
+            ),
             reference_sec: pick_parsed(env("REFERENCE_SEC"), file.reference_sec, 60),
             fade_in_sec: pick_parsed(env("FADE_IN_SEC"), file.fade_in_sec, 1.5),
             fade_out_sec: pick_parsed(env("FADE_OUT_SEC"), file.fade_out_sec, 3.0),
@@ -123,6 +192,13 @@ impl Config {
             .unwrap_or_else(|| PathBuf::from("."));
         base.join("melodias-studio").join("config.toml")
     }
+}
+
+fn parse_bool(value: &str) -> bool {
+    matches!(
+        value.to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
 }
 
 fn env(key: &str) -> Option<String> {
@@ -165,6 +241,7 @@ struct FileConfig {
     audio_stop_cmd: Option<String>,
     audio_style: Option<String>,
     image_style: Option<String>,
+    image_negative_prompt: Option<String>,
     audio_negative_prompt: Option<String>,
     gpu_label: Option<String>,
     duration_sec: Option<u32>,
@@ -173,6 +250,24 @@ struct FileConfig {
     sampler: Option<String>,
     width: Option<u32>,
     height: Option<u32>,
+    video_width: Option<u32>,
+    video_height: Option<u32>,
+    judge_enabled: Option<bool>,
+    judge_provider: Option<String>,
+    opencode_api_key: Option<String>,
+    openrouter_api_key: Option<String>,
+    judge_model: Option<String>,
+    judge_omni_model: Option<String>,
+    judge_reasoner_model: Option<String>,
+    judge_image_px: Option<u32>,
+    judge_audio_sec: Option<u32>,
+    judge_timeout_sec: Option<u64>,
+    image_steps: Option<u32>,
+    image_seed: Option<u32>,
+    candidates: Option<u32>,
+    audio_draft_sec: Option<u32>,
+    audio_draft_steps: Option<u32>,
+    audio_draft_sampler: Option<String>,
     reference_sec: Option<u32>,
     fade_in_sec: Option<f64>,
     fade_out_sec: Option<f64>,
@@ -213,6 +308,11 @@ mod tests {
             audio_negative_prompt = "vocals"
             audio_style = "lofi"
             image_style = "watercolor"
+            image_negative_prompt = "glowing eyes"
+            image_steps = 12
+            image_seed = 42
+            candidates = 3
+            audio_draft_sec = 60
         "#;
         let file: FileConfig = toml::from_str(text).unwrap();
         assert_eq!(file.ssh_host.as_deref(), Some("user@10.0.0.5"));
@@ -221,6 +321,11 @@ mod tests {
         assert_eq!(file.audio_negative_prompt.as_deref(), Some("vocals"));
         assert_eq!(file.audio_style.as_deref(), Some("lofi"));
         assert_eq!(file.image_style.as_deref(), Some("watercolor"));
+        assert_eq!(file.image_negative_prompt.as_deref(), Some("glowing eyes"));
+        assert_eq!(file.image_steps, Some(12));
+        assert_eq!(file.image_seed, Some(42));
+        assert_eq!(file.candidates, Some(3));
+        assert_eq!(file.audio_draft_sec, Some(60));
         assert_eq!(file.steps, None);
     }
 }

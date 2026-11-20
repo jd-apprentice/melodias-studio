@@ -8,7 +8,7 @@ PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 BIN := target/release/melodias
 
-.PHONY: help run generate build check fmt test install uninstall deploy status log clean
+.PHONY: help run generate image judge render video build check fmt test install uninstall deploy status log clean
 
 help:
 	@printf '%s\n' \
@@ -17,6 +17,10 @@ help:
 	  '  make run                             TUI' \
 	  '  make generate URL=... VIBE="..."     headless pipeline, log in output/' \
 	  '  make install                         builds and installs ~/.local/bin/melodias' \
+	  '  make image DIR=output/<slug>         regenerate the thumbnail of a finished run' \
+	  '  make judge DIR=output/<slug>         review a finished run with OpenRouter' \
+	  '  make render DIR=output/<slug>        produced video with Remotion' \
+	  '  make video DIR=output/<slug>         fast video with ffmpeg' \
 	  '  make uninstall                       removes the installed binary' \
 	  '  make log                             last lines of the newest log' \
 	  '  make check                           fmt + build + clippy -D warnings + tests' \
@@ -37,6 +41,22 @@ generate:
 
 build:
 	$(CARGO) build
+
+image:
+	@test -n "$(DIR)" || { echo 'missing DIR, for example: make image DIR=output/<slug>'; exit 2; }
+	$(CARGO) run --release -- image "$(DIR)"
+
+judge:
+	@test -n "$(DIR)" || { echo 'missing DIR, for example: make judge DIR=output/<slug>'; exit 2; }
+	$(CARGO) run --release -- judge "$(DIR)"
+
+render:
+	@test -n "$(DIR)" || { echo 'missing DIR, for example: make render DIR=output/<slug>'; exit 2; }
+	$(CARGO) run --release -- render "$(DIR)"
+
+video:
+	@test -n "$(DIR)" || { echo 'missing DIR, for example: make video DIR=output/<slug>'; exit 2; }
+	$(CARGO) run --release -- video "$(DIR)"
 
 check:
 	$(CARGO) fmt --check

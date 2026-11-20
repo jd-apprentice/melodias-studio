@@ -2,3 +2,9 @@
 /output
 *.wav
 /.archify
+/assets/videos
+/video/node_modules
+/video/public/current
+/video/props.json
+/video/out
+/video/.remotion

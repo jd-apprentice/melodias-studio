@@ -1,16 +1,17 @@
 # Adversary review and video assembly
 
-Status: proposal. Nothing in this document is implemented yet.
+Status: in progress. Phases 1, 2 and the cloud judge are implemented, and so is the assembly with ffmpeg and Remotion. The local hard gates and the retry loop are not. The judge preselects the pair and the TUI keeps the manual override.
 
 ## Why
 
-Today the pipeline generates one thumbnail and one take. If either is weak, the run has to be repeated by hand and there is no record of why one result was accepted. For three to four minute uploads that is expensive: a rejected take costs a full audio stage.
+Today the pipeline generates three thumbnails and three audio drafts and pauses for a manual pick. That works, but the choice is still a human decision with no written rationale. The next step is to put a judge on top of the pool: local hard gates first, then a cloud reviewer that sees the images, hears the clips and picks the pair that best matches the brief.
 
 The proposal is to generate a small pool of candidates per modality, let local critics pick the best one inside a fixed number of rounds, optionally ask a stronger cloud judge for a second opinion, and then assemble the final video from the chosen still, an audio-reactive effect and the mastered track.
 
 ## Goals
 
 - Improve the average quality without a human in the loop.
+- Stay within roughly 40 minutes per video, assembly included.
 - Bound the review with an explicit round limit and a score threshold.
 - Keep the local-only mode working: the cloud judge is optional.
 - Record every candidate, score and decision in a manifest.
@@ -27,31 +28,36 @@ The proposal is to generate a small pool of candidates per modality, let local c
 ```
 brief (vibe + fixed rules)
         │
-        ├─ image pool (N candidates) ──► image critic ──┐
-        │                                              │
-        ├─ audio pool (N candidates) ──► audio critic ──┤
-        │                                  ▲           │
-        │                        retry only the weak side
-        │                        while rounds remain    │
-        └──────────────────────────────────┴───────────┘
+        ├─ image pool (N candidates) ──► hard gates ──┐
+        │                                             │
+        ├─ audio pool (N candidates) ──► hard gates ──┤
+        │                                  ▲          │
+        │                        retry the weak side  │
+        │                        while rounds remain   │
+        └──────────────────────────────────┴──────────┘
                                                │
-                                    shortlist + metrics
+                               compressed evidence (JPEG + clips)
                                                │
-                                    cloud judge (optional)
-                                     approve / revise once
+                          omni perception (sees + hears)
                                                │
-                                    assembly (still + effects + audio)
+                          Nemotron Ultra judge (reasoning, text)
+                                               │
+                          decider: strict choice or argmax
+                                               │
+                          assembly: Remotion or ffmpeg
                                                │
                                             final/
 ```
 
-The pools run sequentially because a single GPU cannot hold the image model and ACE-Step at the same time. The image pool still runs first, as it does now.
+The pools run sequentially because a single GPU cannot hold the image model and ACE-Step at the same time. The image pool still runs first, as it does now. The judge only sees compressed evidence, not the full run.
 
 ## Candidate pools
 
-- `IMAGE_CANDIDATES` and `AUDIO_CANDIDATES`, default 2 each.
+- `CANDIDATES`, default 3, for both pools. Implemented.
 - Every candidate keeps its seed and parameters in `manifest.json`.
-- Image seeds are not sent yet. The first prerequisite is adding a seed to the sd-server request so a candidate can be reproduced.
+- Image seeds and steps are sent through `sd_cpp_extra_args`; the same seed and steps reproduce the image.
+- The TUI pauses on a review screen and the chosen pair drives the final take. The headless mode picks the first candidate.
+- The candidate data lives in `meta.json`.
 - Each pool loads its model once and generates all candidates before unloading it.
 - Candidates are not regenerated at full steps; the same parameters are used for the whole pool.
 
@@ -95,14 +101,40 @@ Merging is a later experiment: choose the best intro, body and outro only when t
 
 ## Cloud judge
 
-Optional and off by default.
+Optional. It runs when a provider key is present and replaces the manual pick with a review over compressed evidence, so the request stays small and cheap.
 
-- Input: brief, fixed rules, metrics, local reasoning and the chosen image. Audio is described by its metrics and the local score; the judge is not expected to listen.
-- Output, strict JSON:
+### Default backend: OpenCode Go with Gemini 4 Argon
+
+`gemini-4-argon` is part of the OpenCode Go plan and accepts images and audio in the same native `generateContent` request (`https://opencode.ai/inference/go/google/v1beta`). One call sees the thumbnails, hears the clips and returns the whole verdict, so the two-stage split below is not needed:
+
+- Request: system brief, 768 px JPEGs, 15 s mono MP3s, `responseMimeType: application/json`.
+- Cost: about 6.4k input tokens and 0.02 USD of list cost per run, drawn from the Go monthly allowance. Roughly 20 s of wall time.
+- Validation: on the first real run it ranked the repaired thumbnail (natural green eyes) first and picked the strongest clip, which matches the manual correction.
+- The gateway requires `x-opencode-session` and an explicit user agent, or it answers 400.
+
+The key is `OPENCODE_API_KEY`. `JUDGE_PROVIDER=auto` picks this backend when the key is set and falls back to OpenRouter otherwise.
+
+### Alternative backend: OpenRouter, two stages
+
+### Perception: the omni model
+
+`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` accepts text, image, audio and video (256k context, free at the time of writing). Send the brief, the fixed rules, the three thumbnails and three short clips:
+
+- Images: 768 px JPEG, around 100 to 200 KB each. Not the full 1280x720 PNG.
+- Audio: 15 s mono MP3 at 64 kbps, around 120 KB each. Not the 60 s WAV.
+- Ask for strict JSON with one score and one reason per image, one per audio, the coherence of each image/audio pair, and the best pair.
+
+The omni model is the part that actually sees the eyes, the palette and the composition, and that hears whether the track feels like the image.
+
+### Reasoning: the judge
+
+`nvidia/nemotron-3-ultra-550b-a55b:free` is text only (1M context, free). It receives the brief, the local metrics and the omni verdict, and returns the final decision:
 
 ```json
 {
   "verdict": "approve",
+  "image": 2,
+  "audio": 1,
   "score": 86,
   "must_fix": [],
   "nice_to_have": ["warmer highlight"],
@@ -110,84 +142,104 @@ Optional and off by default.
 }
 ```
 
-- The judge may send the work back once with `must_fix`. A second rejection ends the loop and publishes the best local candidate.
-- If the API fails or returns invalid JSON, the run continues with the local pick and logs the failure. The judge never writes files.
-- Privacy: only enable it when sending the brief and the image to a third party is acceptable. Log exactly what was sent.
+The Ultra is the arbiter, not the perception layer. It never sees the raw media.
+
+The judge is implemented in `src/judge.rs`. It runs before the review, writes `work/judge/verdict.json` (provider, model, token usage, both reports and the selection), and returns a suggestion that preselects the TUI review. Without a provider key the judge is skipped and the manual pick still works.
+
+### Decider
+
+`pplx-decider-v1.3` is not available on OpenRouter: the URL returns 404 and the model list only has the Sonar family (text and image, paid). Use the Ultra with a strict choice, or a deterministic argmax over the omni scores. A paid Sonar model is only worth it for a third opinion, not for the default path.
+
+### Why two models
+
+- The Ultra is blind and deaf. It cannot rank images or audio by itself.
+- The omni model sees and hears, but it is smaller; it is good at describing and scoring, not at the final arbitration.
+- Two calls per round are cheap and under the free limits. Cache the verdict in `meta.json`.
+
+### Rules
+
+- One revision per run. If `must_fix` is not empty and rounds remain, regenerate only the weak side.
+- Fail-open: if the API fails, returns invalid JSON or hits a rate limit, continue with the local pick and log it.
+- The judge never writes files; it only returns JSON.
+- Free model IDs change and disappear, as `pplx-decider` did. Keep them in config and verify at runtime.
+- Privacy: the images and clips go to a third party. The source URL is not sent. Enable only when that is acceptable.
 
 ## Assembly
 
-The final video is the chosen still, an audio-reactive effect and the mastered track.
+Two renderers, same inputs (chosen still and mastered track):
 
-- Canvas 1920x1080, H.264 video and AAC audio.
-- The still gets a slow zoom or parallax; no cuts, since the image is static.
-- A low band at the bottom shows a waveform or spectrum driven by the track.
-- Title and channel overlays come from the source metadata and the channel config.
-- Video fades in and out with the audio.
-- The assembly agent only chooses a preset (`minimal`, `pixel`, `retro`) from the vibe. The rendering itself is a deterministic ffmpeg graph.
-- Output: `video.mp4`, `thumbnail.png`, `audio.mp3` and `manifest.json`.
+- **ffmpeg**, `media::assemble_video`: fast (~2 min), deterministic, used by the pipeline today. Slow zoom, moving sprite particles, waveform band and fades.
+- **Remotion**, the `video/` project: produced path (~12 min at 1080p30). Uses the particle and bird clips in `assets/videos/` as screen overlays, an audio-reactive waveform from `@remotion/media-utils`, a slow zoom, the channel label and fades. Run `melodias render <dir>`. The ffmpeg version stays available as `melodias video <dir>`.
+
+Both write `video.mp4`. The Remotion command backs up the previous ffmpeg file as `video-ffmpeg.mp4`.
+
+The assembly agent that picks a preset from the vibe is still pending.
 
 ## Data model
 
 ```
 output/<slug>/
-├── manifest.json
+├── meta.json          # the manifest: brief, config, seeds, candidates, scores, judge verdict
 ├── candidates/
 │   ├── image-01.png
 │   ├── image-02.png
 │   ├── audio-01.wav
 │   └── audio-02.wav
-├── final/
-│   ├── thumbnail.png
-│   ├── audio.mp3
-│   └── video.mp4
+├── thumbnail.png
+├── audio.mp3
+├── video.mp4
+├── video-ffmpeg.mp4   # only when Remotion rendered over the ffmpeg version
 └── work/
 ```
 
-The manifest records the brief, resolved config, seeds, hard gate results, soft scores, rounds used, judge verdict and the chosen paths.
+`meta.json` records the brief, resolved config, seeds, hard gate results, soft scores, rounds used, judge verdict and the chosen paths.
 
 ## Cost control and runtime
 
-More candidates only make sense if a round stays affordable. The current costs come from three choices: the image request sends no steps, so the server uses its 20-step recipe; the audio request uses 32 steps with heun, which evaluates the model twice per step; and every candidate pays the full duration.
+More candidates only make sense if a round stays affordable. The costs come from three choices: the image request now sends steps (20 by default), the audio request uses 32 steps with heun, which evaluates the model twice per step, and every candidate pays the full duration.
 
 Use two tiers:
 
 | Tier | Image | Audio |
 | --- | --- | --- |
-| Draft (the pool) | 1280x720, 10 to 12 steps | 60 s, 16 steps, euler |
-| Final (the winner) | 1280x720, 20 steps | configured duration, 32 steps, heun |
+| Pool | 1280x720, 20 steps | 60 s, 16 steps, euler |
+| Final | the pool winner, no regeneration | configured duration, 32 steps, heun |
 
 Why each choice:
 
-- **Image steps before resolution.** Keep the same 1280x720 canvas for drafts. Changing the canvas changes the latent layout, and with the same seed the final would not match the candidate the critic picked. Steps and seed travel inside `sd_cpp_extra_args`, which the server strips before generation.
-- **A low-step draft is close enough.** With the same seed and size, 12 steps and 20 steps usually share the composition. The critic ranks the draft, and the winner is regenerated at 20 steps.
+- **Image drafts did not hold up.** A/B at 1280x720 with the same seed on the P40: 12 steps took 116 s and 20 steps 285 s, but the 12-step image was visibly softer and even changed the outfit. SSIM between the two was 0.24. Use 20 steps for every image candidate; the saved time is not worth the quality loss.
 - **Image resolution is the last lever.** 1024x576 saves more time but changes the composition. If it is used, the critic must rank the draft and the final must be reviewed again, which defeats part of the saving.
-- **Short audio drafts rank style, not the arc.** A 60 s draft at 16 euler steps is enough to compare timbre, energy and prompt adherence. The full 210 s take is generated once, at 32 heun steps, and passes the hard gates for intro, outro and duration.
+- **Short audio drafts rank style, not the arc.** A 60 s draft at 16 euler steps should be enough to compare timbre, energy and prompt adherence. The full 210 s take is generated once, at 32 heun steps, and passes the hard gates for intro, outro and duration.
 - **Keep the model loaded across the pool.** One load per modality, all candidates inside it.
 - **Turbo for audio drafts is optional.** ACE-Step Turbo caps at 8 steps but requires switching the DiT and reloading, so it only pays off if the reload is cheaper than the saved steps. Measure before adopting it.
 
-Rough wall time on the P40, to be measured rather than trusted:
+The target budget is roughly 40 minutes per video, assembly included. N=3 is the default at about 36 minutes; N=2 is the faster option.
 
-| Step | Today | N=2 draft/final | N=3 draft/final |
+Measured wall time, warm model:
+
+| Step | Today | N=2 | N=3 |
 | --- | --- | --- | --- |
-| Image pool | ~6 min for one | ~6 min + ~6 min final | ~9 min + ~6 min final |
-| Audio pool | ~14 min for one | ~4 min + ~14 min final | ~6 min + ~14 min final |
-| Total | ~20 min | ~30 min | ~35 min |
+| Image pool | ~5 min | ~10 min | ~15 min |
+| Audio pool | ~14 min | ~4 min + ~14 min final | ~6 min + ~14 min final |
+| Assembly (ffmpeg) | ~2 min | ~2 min | ~2 min |
+| Assembly (Remotion) | ~12 min | ~12 min | ~12 min |
+| Total, ffmpeg | ~20 min | ~29 min | ~36 min |
+| Total, Remotion | ~30 min | ~46 min | ~50 min |
 
-For comparison, three full candidates would be about 60 minutes. The saving comes mostly from the short audio drafts, not from the images.
+N=3 fits the ffmpeg budget. Remotion adds about 12 minutes; if the produced video is the default, the real budget is closer to 50 minutes. The judge calls are free.
 
-Two quality questions to settle with an A/B before shipping the policy:
+One quality question remains:
 
-- Does 12-step MOSS-Image hold up against 20 steps on this style?
 - Does a 60 s draft rank the same take that a full 210 s run would produce?
 
-If either answer is no, keep the full parameters for that modality and accept the longer round.
+If the answer is no, the budget cannot afford two full takes. The fallback is one full take with no audio pool, or an explicitly longer opt-in run.
 
 ## Configuration sketch
 
 ```
-CANDIDATES=2
+CANDIDATES=3
 IMAGE_STEPS=20
-IMAGE_DRAFT_STEPS=12
+IMAGE_SEED=
 AUDIO_STEPS=32
 AUDIO_DRAFT_STEPS=16
 AUDIO_DRAFT_SEC=60
@@ -195,28 +247,44 @@ AUDIO_DRAFT_SAMPLER=euler
 REVIEW_ROUNDS=2
 REVIEW_THRESHOLD=0.75
 JUDGE_ENABLED=false
-JUDGE_MODEL=
-JUDGE_API_KEY=
+JUDGE_PERCEPTION_MODEL=nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+JUDGE_REASONER_MODEL=nvidia/nemotron-3-ultra-550b-a55b:free
+JUDGE_DECIDER_MODEL=
+OPENCODE_API_KEY=
+OPENROUTER_API_KEY=
+JUDGE_PROVIDER=auto
+JUDGE_MODEL=gemini-4-argon
+JUDGE_MAX_CALLS=4
+JUDGE_IMAGE_MAX_PX=768
+JUDGE_AUDIO_SEC=15
+VIDEO_RENDERER=ffmpeg # or remotion
 ASSEMBLY_PRESET=auto
 ```
 
-The same keys belong in `config.toml` once the feature exists. Image seeds are not sent today, so a candidate cannot be replayed; sending `seed` in `sd_cpp_extra_args` is the first prerequisite.
+The same keys belong in `config.toml` once the feature exists. Image seeds and steps are already sent, and the A/B settled the image tier: full steps for every candidate.
 
 ## Phased plan
 
-1. Image steps and seed through `sd_cpp_extra_args`, plus the draft/final policy. Validate the syntax against the server.
-2. Manifest and candidate pools, with a manual pick in the TUI. No new models.
-3. Deterministic hard gates and a local ranking.
-4. Review loop with rounds and thresholds.
-5. Optional cloud judge with the JSON contract.
-6. Video assembly.
+1. Image steps and seed through `sd_cpp_extra_args`, plus the draft/final policy. Seed, steps and the image tier (full steps) are done; the audio draft policy is pending validation.
+2. Manifest and candidate pools, with a manual pick in the TUI. No new models. Done: `meta.json` records the candidates and the selection.
+3. Deterministic hard gates and local metrics.
+4. Omni perception + Ultra judge, with the strict JSON contract and fail-open. Done.
+5. Review loop with rounds and thresholds; the TUI can still override the pick.
+6. Video assembly: done with ffmpeg and Remotion; the preset agent is pending.
 7. Bar-aligned splicing, only if the seams measure clean.
 
 ## Risks and open questions
 
 - Vocal detection for the instrumental rule. Source separation is the reliable option but adds a model and time.
-- The cloud judge cannot hear the track. Either accept a metrics-only review or use an audio-capable model.
-- Cost and time grow linearly with the number of candidates. Two is the safe default.
+- Free model availability is not guaranteed. `pplx-decider` already returned 404; the Nemotron IDs can change too.
+- The 15 s clip may not represent the full three minute arc. The judge ranks timbre and energy; the final take still passes the hard gates.
+- The Ultra judge is blind and deaf by design; if the omni model is unavailable, there is no perception layer.
+- Rate limits on free models. Cap the calls per run and fail-open.
+- OpenRouter charges the audio input path with a $0.50 minimum balance even on a free model. Images work without balance; audio is the one that needs credit.
+- OpenCode Go is sold for coding-agent traffic, and this judge is media review. It is the user's own subscription and the volumes are tiny, but it is not the advertised use case.
+- The Gemini request carries 4 images and 3 clips at once, around 870 KB of base64. It works today; a larger candidate pool would need chunking or a smaller audio bitrate.
+- Privacy: images and clips leave the machine. Keep the judge opt-in and never send the source URL.
+- Cost and time grow linearly with the candidates, and Remotion adds about 12 minutes on top.
 - Judge reliability: strict schema, one revision, and fail-open to the local pick.
-- Reproducibility: image seeds are not sent today, so image candidates cannot be replayed. Fix that first.
+- Reproducibility: image seeds and steps are now sent; recheck that a server update keeps the same output for the same input.
 - Blending audio across takes can sound worse than the best single take. Measure before shipping it.
