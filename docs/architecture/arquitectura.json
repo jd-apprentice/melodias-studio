@@ -10,7 +10,7 @@
       "url": "https://github.com/jd-apprentice/melodias-studio",
       "provider": "github",
       "link_mode": "web",
-      "revision": "b781c7dddce09d02a053770afc29381a1c5f2cc5"
+      "revision": "8e4380ef50aa595bf48dd0d6e5bc78d1dcf0b960"
     },
     "legend": {
       "entries": {
@@ -37,14 +37,14 @@
       "sources": [
         {
           "path": "src/app.rs",
-          "line": 36,
-          "end_line": 52,
+          "line": 37,
+          "end_line": 53,
           "label": "input fields"
         },
         {
           "path": "src/app.rs",
-          "line": 73,
-          "end_line": 92,
+          "line": 74,
+          "end_line": 93,
           "label": "start needs reference and vibe"
         }
       ]
@@ -65,14 +65,14 @@
       "sources": [
         {
           "path": "src/app.rs",
-          "line": 255,
-          "end_line": 304,
+          "line": 265,
+          "end_line": 314,
           "label": "key loop"
         },
         {
           "path": "src/app.rs",
-          "line": 306,
-          "end_line": 339,
+          "line": 316,
+          "end_line": 349,
           "label": "screen layout"
         }
       ]
@@ -81,7 +81,7 @@
       "id": "pipeline",
       "type": "backend",
       "label": "pipeline.rs",
-      "sublabel": "11 stages · pools + review + video",
+      "sublabel": "11 stages · pools + judge + video",
       "pos": [
         470,
         270
@@ -99,8 +99,8 @@
         },
         {
           "path": "src/pipeline.rs",
-          "line": 108,
-          "end_line": 423,
+          "line": 116,
+          "end_line": 469,
           "label": "run()"
         }
       ]
@@ -267,9 +267,31 @@
       "sources": [
         {
           "path": "src/pipeline.rs",
-          "line": 323,
-          "end_line": 423,
+          "line": 368,
+          "end_line": 469,
           "label": "master, video and metadata"
+        }
+      ]
+    },
+    {
+      "id": "judge",
+      "type": "cloud",
+      "label": "OpenRouter judge",
+      "sublabel": "omni + ultra (free)",
+      "pos": [
+        470,
+        60
+      ],
+      "size": [
+        180,
+        64
+      ],
+      "sources": [
+        {
+          "path": "src/judge.rs",
+          "line": 1,
+          "end_line": 312,
+          "label": "two-stage judge"
         }
       ]
     }
@@ -341,6 +363,14 @@
       "from": "pipeline",
       "to": "salida",
       "label": "audio.mp3 + meta"
+    },
+    {
+      "id": "pipeline-judge",
+      "from": "pipeline",
+      "to": "judge",
+      "label": "evidence → verdict",
+      "fromSide": "top",
+      "toSide": "bottom"
     }
   ],
   "cards": [
@@ -370,10 +400,10 @@
       "items": [
         "candidates/ keeps N images and N audio drafts",
         "3 images at 20 steps and 3 drafts at 60 s by default",
-        "The review pauses the run for a manual pick",
+        "The judge preselects the pair; the TUI can override it",
         "video.mp4 with ffmpeg or Remotion (overlays, waveform, branding)",
         "melodias image/render/video rebuild pieces without the GPU",
-        "meta.json stores candidates, seeds and the selected pair"
+        "meta.json stores candidates, seeds, judge and selection"
       ]
     },
     {
