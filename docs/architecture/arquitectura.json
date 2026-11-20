@@ -10,7 +10,7 @@
       "url": "https://github.com/jd-apprentice/melodias-studio",
       "provider": "github",
       "link_mode": "web",
-      "revision": "9621c85e9a32290de6a49836ce437a6cbb917747"
+      "revision": "6fc6ef52e021c36973c874dfff15561dc069a971"
     },
     "legend": {
       "entries": {
@@ -133,8 +133,8 @@
         },
         {
           "path": "src/media.rs",
-          "line": 241,
-          "end_line": 302,
+          "line": 427,
+          "end_line": 489,
           "label": "video assembly"
         }
       ]
@@ -178,7 +178,7 @@
         {
           "path": "src/clients.rs",
           "line": 86,
-          "end_line": 129,
+          "end_line": 130,
           "label": "image prompt"
         },
         {
@@ -205,8 +205,8 @@
       "sources": [
         {
           "path": "src/clients.rs",
-          "line": 189,
-          "end_line": 210,
+          "line": 203,
+          "end_line": 224,
           "label": "image generation"
         },
         {
@@ -233,8 +233,8 @@
       "sources": [
         {
           "path": "src/clients.rs",
-          "line": 140,
-          "end_line": 187,
+          "line": 154,
+          "end_line": 201,
           "label": "take with reference"
         },
         {
@@ -371,7 +371,8 @@
         "candidates/ keeps N images and N audio drafts",
         "3 images at 20 steps and 3 drafts at 60 s by default",
         "The review pauses the run for a manual pick",
-        "video.mp4 adds a slow zoom, floating particles and the waveform",
+        "video.mp4 adds a slow zoom, moving particles and the waveform",
+        "melodias image/video rebuild pieces without the GPU",
         "meta.json stores candidates, seeds and the selected pair"
       ]
     },
