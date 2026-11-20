@@ -1,6 +1,6 @@
 # 0002 · Deterministic scoring and feedback loop
 
-Status: proposed
+Status: accepted. Phase 1 is implemented; the database write, `melodias history` and the retry loop are not.
 
 Date: 2026-11-20
 
@@ -21,7 +21,7 @@ Measuring the same run locally shows the same problems with numbers:
 | Signal | Measured | What it says |
 | --- | --- | --- |
 | Unique colors in the thumbnail | 216,853 | Not pixel art. A posterized sprite should be under 2,048 |
-| Luma std of the thumbnail at 168x94 | 0.179 | Readable, good contrast |
+| Luma std of the thumbnail at 168x94 | 0.173 | Readable, good contrast |
 | Pixels with high value and high saturation | 0.0 % | No neon glow, matches the repaired eyes |
 | OCR words with confidence >= 75 and length >= 4 | 0 | No text or watermark |
 | Integrated loudness | -14.6 LUFS | Inside the -15 ± 1 target |
@@ -56,6 +56,8 @@ technical = image (50) + audio (50)          deterministic, always computed
 editorial = judge best-pair score (0..100)   optional, only when the judge runs
 total     = 0.6 * technical + 0.4 * editorial
 ```
+
+Each side is normalized to 0..100. When `tesseract` is missing, `IMG_TEXT` is skipped and the image side is normalized over the 40 points it can still measure.
 
 Without the judge, `total = technical` and the target is the technical threshold. The 60/40 split means a perfect editorial score cannot carry a weak run: with technical 72, even a judge score of 100 gives 83.2. Fixing the palette alone (technical 92) gives 82.1, which is the intended path.
 
@@ -243,6 +245,8 @@ The `rubric` column matters: a threshold change starts a new version, and trends
 
 The palette costs 20 points in every run, with 205k to 368k colors. The build and the high band lose about 4 points each in all three. One legacy run is 72 s long instead of 210 s, which the duration rule catches. Only the newest run has an editorial score, because the judge did not exist before it.
 
+The script measures with ImageMagick and the tool with ffmpeg, so the same run can differ by up to 0.3 points. The table keeps the script output; `melodias score` is the reference from phase 1 on.
+
 The backfill also tightened the OCR filter: a three-character junk token at confidence 73 cost 10 points on a clean thumbnail. Requiring four characters and confidence 75 removed the false positive.
 
 The useful view is the cost of each finding over time:
@@ -273,7 +277,7 @@ The current run, scored with this rubric:
 | Side | Metric | Value | Points |
 | --- | --- | --- | --- |
 | Image | palette | 216,853 colors | 0.0 / 20 |
-| Image | contrast | 0.173 | 9.1 / 10 |
+| Image | contrast | 0.172 | 9.0 / 10 |
 | Image | text | 0 tokens | 10.0 / 10 |
 | Image | glow | 0.0 % | 5.0 / 5 |
 | Image | saturation | 0.378 | 5.0 / 5 |
@@ -285,7 +289,7 @@ The current run, scored with this rubric:
 | Audio | silence | 0 s | 5.0 / 5 |
 | Audio | duration | 210.0 s | 5.0 / 5 |
 
-`technical = 72.4`, `editorial = 67`, `total = 70.2`. The run would fail the 80 target, and the report would name `IMG_PALETTE` as the first fix. Posterizing to 2,048 colors takes technical to 92.4 and total to 82.2, before touching the audio.
+`technical = 72.2`, `editorial = 67`, `total = 70.1`. The run would fail the 80 target, and the report would name `IMG_PALETTE` as the first fix. Posterizing to 2,048 colors takes technical to 92.2 and total to 82.1, before touching the audio. `melodias score` reproduces this table.
 
 ## Calibration
 
@@ -298,7 +302,7 @@ The editorial score is the weak part and the RFC does not hide it:
 
 ## Phases
 
-1. **Metrics and `melodias score`.** `src/score.rs`, pure functions over raw buffers plus parsers for `ffmpeg` output, `work/score.json`, findings in the report. No database, no loop.
+1. **Metrics and `melodias score`.** Done: `src/score.rs`, pure functions over pixel buffers plus parsers for `ffmpeg` output, `melodias score <dir>` and `work/score.json`, findings in the report. Every candidate and the final pair are scored; drafts skip the master-only metrics. No database, no loop.
 2. **History in every run.** `rusqlite` with the bundled feature, one write at the end of a run, `melodias history` reads. `MELODIAS_DB` and the default path. `scripts/backfill-history.sh` covers the runs made before it exists.
 3. **Retry loop.** Patch table, budget, `accepted_by_limit`, `must_fix` codes in the judge prompt.
 4. **Dashboard.** Static HTML or a small page over the CSV export, once there are enough runs.
@@ -319,12 +323,12 @@ The editorial score is the weak part and the RFC does not hide it:
 - **Audio metrics are coarse.** Centroid and high-band energy describe timbre, not melody. They point in the right direction and do not replace listening.
 - **History is personal data.** It stays local, in the config directory, and is never sent anywhere.
 
-## Open questions
+## Decisions
 
-1. Weights: 60/40 deterministic/editorial, or 70/30?
-2. Palette target: 2,048 colors (lenient, reachable by SD) or 256 (strict pixel art)?
-3. Acceptance: 80 total, 85 technical, 70 editorial. Too strict, too loose?
-4. Is `tesseract` acceptable as an optional dependency for `IMG_TEXT`?
-5. Default database path in the config directory, or inside the repo with `.gitignore`?
-6. Should the loop be able to spend an extra audio round, given it is the slowest side?
-7. Do we score every candidate or only the selected pair? Scoring all of them costs nothing locally and makes the pool report richer.
+1. **Weights:** 60/40 technical/editorial. The deterministic score dominates and the judge decides the last four points of every ten.
+2. **Palette:** 2,048 colors as the target, with the buckets above. 256 is unreachable for sd-server without destroying the image.
+3. **Acceptance:** 80 total, 85 technical, 70 editorial. A perfect editorial score cannot carry a technical score below 72.
+4. **OCR:** `tesseract` is optional. Without it, `IMG_TEXT` is skipped and the image side is renormalized over the remaining 40 points.
+5. **Database:** the config directory, `MELODIAS_DB` overrides it. `.gitignore` covers `*.db`, `*.db-wal` and `*.db-shm` for checkouts that point into the repo.
+6. **Audio round:** at most one, and only when the audio side lost 8 points or more and the image side already passed. The loop still stops at `SCORE_ROUNDS`.
+7. **Candidates:** score all of them. Drafts skip `AUD_LOUDNESS`, `AUD_PEAK` and `AUD_DURATION`, which describe the mastered track.
