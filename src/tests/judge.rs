@@ -27,6 +27,7 @@ fn parses_and_normalizes_must_fix() {
     let value = json!([
         { "code": "Eyes!", "target": "image 2", "reason": "  too much glow  " },
         "composition",
+        { "code": "eyes", "target": "image 3", "reason": "duplicate" },
         { "code": "" },
         7
     ]);

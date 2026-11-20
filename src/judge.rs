@@ -227,29 +227,31 @@ fn parse_must_fix(value: &Value) -> Vec<MustFix> {
     let Some(items) = value.as_array() else {
         return Vec::new();
     };
-    items
-        .iter()
-        .filter_map(|item| {
-            if let Some(text) = item.as_str() {
-                let code = normalize_code(text);
-                return (!code.is_empty()).then(|| MustFix {
-                    code,
-                    target: String::new(),
-                    reason: String::new(),
-                });
-            }
-            let code = normalize_code(item["code"].as_str().unwrap_or(""));
-            if code.is_empty() {
-                return None;
-            }
-            Some(MustFix {
-                code,
-                target: clean(item["target"].as_str().unwrap_or(""), 40),
-                reason: clean(item["reason"].as_str().unwrap_or(""), 200),
-            })
-        })
-        .take(5)
-        .collect()
+    let mut seen = std::collections::HashSet::new();
+    let mut fixes = Vec::new();
+    for item in items {
+        let (code, target, reason) = if let Some(text) = item.as_str() {
+            (normalize_code(text), String::new(), String::new())
+        } else {
+            (
+                normalize_code(item["code"].as_str().unwrap_or("")),
+                clean(item["target"].as_str().unwrap_or(""), 40),
+                clean(item["reason"].as_str().unwrap_or(""), 200),
+            )
+        };
+        if code.is_empty() || !seen.insert(code.clone()) {
+            continue;
+        }
+        fixes.push(MustFix {
+            code,
+            target,
+            reason,
+        });
+        if fixes.len() == 5 {
+            break;
+        }
+    }
+    fixes
 }
 
 fn normalize_code(text: &str) -> String {
