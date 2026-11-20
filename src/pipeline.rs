@@ -131,7 +131,7 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
     let source = step(tx, 3, || media::download_audio(url, &work))?;
     log(tx, format!("source: {}", source.display()));
 
-    let reference = step(tx, 4, || media::pick_reference(&source, &work))?;
+    let reference = step(tx, 4, || media::pick_reference(cfg, &source, &work))?;
     log(
         tx,
         format!(
@@ -181,7 +181,7 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
         ),
     );
 
-    let mastered = step(tx, 7, || media::master_take(&take, &work))?;
+    let mastered = step(tx, 7, || media::master_take(cfg, &take, &work))?;
     let mp3 = media::encode_mp3(&mastered, &work, 320)?;
     log(
         tx,
@@ -190,6 +190,11 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
             mp3.display(),
             media::duration_secs(&mp3)?
         ),
+    );
+
+    let master = format!(
+        "fade-in {} s, fade-out {} s, {} LUFS",
+        cfg.fade_in_sec, cfg.fade_out_sec, cfg.loudness_lufs
     );
 
     step(tx, 8, || {
@@ -209,7 +214,7 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
                 "guidance": cfg.guidance,
                 "sampler": cfg.sampler,
                 "duration_sec": cfg.duration_sec,
-                "master": "fade-in 1.5 s, fade-out 3 s, -15 LUFS",
+                "master": master,
                 "reference": remote,
                 "file": final_audio,
             },

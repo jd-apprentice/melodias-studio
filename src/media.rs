@@ -91,10 +91,11 @@ pub fn download_audio(url: &str, dir: &Path) -> Result<PathBuf> {
     Ok(wav)
 }
 
-/// Picks the 60 s window with the highest average energy, which tends to skip
+/// Picks the window with the highest average energy, which tends to skip
 /// intros and breakdowns, and writes it as a 48 kHz stereo reference WAV.
-pub fn pick_reference(src: &Path, dir: &Path) -> Result<PathBuf> {
+pub fn pick_reference(cfg: &crate::config::Config, src: &Path, dir: &Path) -> Result<PathBuf> {
     let total = duration_secs(src)?;
+    let reference_sec = cfg.reference_sec.clamp(5, 120);
     let mut cmd = Command::new("ffmpeg");
     cmd.args(["-v", "error", "-i"])
         .arg(src)
@@ -118,7 +119,7 @@ pub fn pick_reference(src: &Path, dir: &Path) -> Result<PathBuf> {
         .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
         .collect();
     let win = 5 * 8000usize;
-    let len = 60 * 8000usize;
+    let len = reference_sec as usize * 8000usize;
 
     let mut start = 0usize;
     if samples.len() > len {
@@ -166,8 +167,13 @@ pub fn pick_reference(src: &Path, dir: &Path) -> Result<PathBuf> {
     Ok(out)
 }
 
-/// Copies the reference to the GPU VM and returns its remote path.
+/// Copies the reference to the GPU VM and returns the path the audio server
+/// should read. With an empty `SSH_HOST` the local file is used as is.
 pub fn push_reference(cfg: &crate::config::Config, local: &Path, slug: &str) -> Result<String> {
+    if cfg.ssh_host.trim().is_empty() {
+        let absolute = std::fs::canonicalize(local).unwrap_or_else(|_| local.to_path_buf());
+        return Ok(absolute.to_string_lossy().into_owned());
+    }
     let remote = format!("{}/{}.wav", cfg.remote_ref_dir.trim_end_matches('/'), slug);
     let mut mkdir = Command::new("ssh");
     mkdir
@@ -194,22 +200,27 @@ pub fn push_reference(cfg: &crate::config::Config, local: &Path, slug: &str) -> 
     Ok(remote)
 }
 
-/// Keeps the take as a standalone song: loudness normalization and gentle edge
-/// fades. It never crossfades the outro into the intro, so the natural ending
-/// and the opening build stay in place.
-pub fn master_take(src: &Path, dir: &Path) -> Result<PathBuf> {
-    const FADE_IN: f64 = 1.5;
-    const FADE_OUT: f64 = 3.0;
+/// Keeps the take as a standalone song: loudness normalization and configurable
+/// edge fades. It never crossfades the outro into the intro, so the natural
+/// ending and the opening build stay in place.
+pub fn master_take(cfg: &crate::config::Config, src: &Path, dir: &Path) -> Result<PathBuf> {
+    let fade_in = cfg.fade_in_sec.max(0.0);
+    let fade_out = cfg.fade_out_sec.max(0.0);
     let total = duration_secs(src)?;
-    if total <= FADE_IN + FADE_OUT + 5.0 {
+    if total <= fade_in + fade_out + 5.0 {
         bail!("the take is {total:.1} s long, too short to master");
     }
-    let fade_out_start = total - FADE_OUT;
-    let graph = format!(
-        "[0:a]loudnorm=I=-15:TP=-1.5,\
-         afade=t=in:st=0:d={FADE_IN},\
-         afade=t=out:st={fade_out_start:.3}:d={FADE_OUT}[out]"
-    );
+    let mut chain = format!("loudnorm=I={}:TP=-1.5", cfg.loudness_lufs);
+    if fade_in > 0.0 {
+        chain.push_str(&format!(",afade=t=in:st=0:d={fade_in}"));
+    }
+    if fade_out > 0.0 {
+        chain.push_str(&format!(
+            ",afade=t=out:st={:.3}:d={fade_out}",
+            total - fade_out
+        ));
+    }
+    let graph = format!("[0:a]{chain}[out]");
     let out = dir.join("master.wav");
     let mut cmd = Command::new("ffmpeg");
     cmd.args(["-v", "error", "-y", "-i"])

@@ -2,9 +2,11 @@ SHELL := /bin/bash
 CARGO ?= cargo
 SSH_HOST ?= root@192.168.88.38
 LOG_DIR ?= output
-BIN := target/release/melodias-studio
+PREFIX ?= $(HOME)/.local
+BINDIR ?= $(PREFIX)/bin
+BIN := target/release/melodias
 
-.PHONY: help run generate build check fmt test deploy status log clean
+.PHONY: help run generate build check fmt test install uninstall deploy status log clean
 
 help:
 	@printf '%s\n' \
@@ -12,6 +14,8 @@ help:
 	  '' \
 	  '  make run                             TUI' \
 	  '  make generate URL=... VIBE="..."     headless pipeline, log in output/' \
+	  '  make install                         builds and installs ~/.local/bin/melodias' \
+	  '  make uninstall                       removes the installed binary' \
 	  '  make log                             last lines of the newest log' \
 	  '  make check                           fmt + build + clippy -D warnings + tests' \
 	  '  make status                          state of llm, sd and audio on the VM' \
@@ -44,9 +48,19 @@ fmt:
 test:
 	$(CARGO) test
 
+install:
+	$(CARGO) build --release
+	@mkdir -p "$(BINDIR)"
+	install -m 755 "$(BIN)" "$(BINDIR)/melodias"
+	@echo "installed $(BINDIR)/melodias"
+
+uninstall:
+	rm -f "$(BINDIR)/melodias"
+	@echo "removed $(BINDIR)/melodias"
+
 deploy:
 	ssh $(SSH_HOST) 'mkdir -p /home/ubuntu/bin'
-	scp deploy/serve-*.sh $(SSH_HOST):/home/ubuntu/bin/
+	scp deploy/env.sh deploy/serve-*.sh $(SSH_HOST):/home/ubuntu/bin/
 	scp deploy/audio-server.json $(SSH_HOST):/home/ubuntu/
 	ssh $(SSH_HOST) 'chmod +x /home/ubuntu/bin/serve-*.sh'
 

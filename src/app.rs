@@ -1,7 +1,7 @@
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -31,6 +31,7 @@ struct App {
     summary: Option<String>,
     tick: u64,
     log: Option<File>,
+    splash_until: Instant,
 }
 
 impl App {
@@ -47,6 +48,7 @@ impl App {
             summary: None,
             tick: 0,
             log: None,
+            splash_until: Instant::now() + Duration::from_millis(1500),
         }
     }
 
@@ -67,6 +69,10 @@ impl App {
             self.vibe.trim().to_string(),
             tx,
         );
+    }
+
+    fn splash_active(&self) -> bool {
+        Instant::now() < self.splash_until
     }
 
     fn open_log(&mut self) {
@@ -167,6 +173,7 @@ pub fn run(terminal: &mut DefaultTerminal, cfg: Config) -> std::io::Result<()> {
             if key.kind != KeyEventKind::Press {
                 continue;
             }
+            app.splash_until = Instant::now();
             match key.code {
                 KeyCode::Char('q') if !app.running => return Ok(()),
                 KeyCode::Esc if !app.running => return Ok(()),
@@ -202,6 +209,10 @@ pub fn run(terminal: &mut DefaultTerminal, cfg: Config) -> std::io::Result<()> {
 }
 
 fn draw(frame: &mut Frame, app: &App) {
+    if app.splash_active() {
+        crate::banner::draw(frame, frame.area(), &app.cfg.gpu_label);
+        return;
+    }
     let [header_area, inputs_area, gauge_area, body_area, status_area] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(4),
@@ -238,7 +249,7 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
             Style::default().add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            format!("   {} · one P40 for three services", app.cfg.ssh_host),
+            format!("   {} · {}", app.cfg.ssh_host, app.cfg.gpu_label),
             Style::default().fg(Color::DarkGray),
         ),
     ]);
@@ -494,17 +505,26 @@ mod tests {
         for (width, height) in [(80, 24), (120, 36)] {
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
             terminal.draw(|frame| draw(frame, &app)).unwrap();
-            if std::env::var_os("PRINT_TUI").is_some() {
-                let buffer = terminal.backend().buffer();
-                println!("--- {width}x{height} ---");
-                for y in 0..height {
-                    let mut line = String::new();
-                    for x in 0..width {
-                        line.push_str(buffer[(x, y)].symbol());
-                    }
-                    println!("{line}");
-                }
+            dump(&terminal, width, height, "splash");
+
+            app.splash_until = Instant::now();
+            terminal.draw(|frame| draw(frame, &app)).unwrap();
+            dump(&terminal, width, height, "ui");
+        }
+    }
+
+    fn dump(terminal: &Terminal<TestBackend>, width: u16, height: u16, label: &str) {
+        if std::env::var_os("PRINT_TUI").is_none() {
+            return;
+        }
+        let buffer = terminal.backend().buffer();
+        println!("--- {label} {width}x{height} ---");
+        for y in 0..height {
+            let mut line = String::new();
+            for x in 0..width {
+                line.push_str(buffer[(x, y)].symbol());
             }
+            println!("{line}");
         }
     }
 }

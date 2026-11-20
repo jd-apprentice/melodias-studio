@@ -1,0 +1,48 @@
+# Copy this file to ~/.config/melodias-studio/config.toml and uncomment what
+# you need. Environment variables win over this file, and every value has a
+# built-in default. All fields are optional.
+
+# --- Endpoints -------------------------------------------------------------
+# Any OpenAI-compatible chat server for the image prompt.
+# llm_url = "http://127.0.0.1:8080"
+# llm_model = "local"
+
+# Any stable-diffusion.cpp server (OpenAI images API).
+# sd_url = "http://127.0.0.1:1234"
+
+# Any audio.cpp server with the ACE-Step family.
+# audio_url = "http://127.0.0.1:8090"
+# audio_model = "ace-step"
+
+# --- Host and lifecycle ----------------------------------------------------
+# Empty means the services run locally and the reference stays on this machine.
+# ssh_host = "root@192.168.88.38"
+# remote_ref_dir = "/models/ref"
+
+# Commands are run over SSH between stages. Set them to "" to manage the
+# servers yourself. Without SSH, the same commands run on this machine.
+# llm_start_cmd = "/home/ubuntu/bin/serve-llm.sh start"
+# llm_stop_cmd = "/home/ubuntu/bin/serve-llm.sh stop"
+# sd_start_cmd = "/home/ubuntu/bin/serve-sd.sh start"
+# sd_stop_cmd = "/home/ubuntu/bin/serve-sd.sh stop"
+# audio_start_cmd = "/home/ubuntu/bin/serve-audio.sh start"
+# audio_stop_cmd = "/home/ubuntu/bin/serve-audio.sh stop"
+
+# --- Content ---------------------------------------------------------------
+# gpu_label = "local models"
+# duration_sec = 210
+# steps = 32
+# guidance = 5.0
+# sampler = "heun"
+# width = 1280
+# height = 720
+# reference_sec = 60
+# audio_negative_prompt = "vocals, singing, voice, choir, lyrics, humming, vocal chops, spoken word"
+
+# --- Master ----------------------------------------------------------------
+# fade_in_sec = 1.5
+# fade_out_sec = 3.0
+# loudness_lufs = -15.0
+
+# --- Output ----------------------------------------------------------------
+# out_dir = "output"

@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=env.sh
+. "$SCRIPT_DIR/env.sh"
+
 NAME=sd
-BIN=/home/ubuntu/stable-diffusion.cpp/build/bin/sd-server
-MOSS=/home/ubuntu/moss
-PIDFILE=/run/melodias-sd.pid
-LOG=/var/log/melodias-sd.log
+BIN=$SD_BIN
+PIDFILE="$MELODIAS_RUN_DIR/melodias-$NAME.pid"
+LOG="$MELODIAS_LOG_DIR/melodias-$NAME.log"
 
 case "${1:-}" in
   start)
@@ -14,12 +17,12 @@ case "${1:-}" in
       exit 0
     fi
     setsid "$BIN" \
-      --diffusion-model "$MOSS/MOSS-Image-SFT-UD-Q4_K_XL.gguf" \
-      --llm "$MOSS/Qwen3.5-9B-Q8_0.gguf" \
-      --vae "$MOSS/vae/diffusion_pytorch_model.safetensors" \
-      --tokenizer "$MOSS/tokenizer/tokenizer.json" \
-      --model-dir "$MOSS" \
-      --listen-ip 0.0.0.0 --listen-port 1234 \
+      --diffusion-model "$SD_DIFFUSION_MODEL" \
+      --llm "$SD_LLM" \
+      --vae "$SD_VAE" \
+      --tokenizer "$SD_TOKENIZER" \
+      --model-dir "$MOSS_DIR" \
+      --listen-ip "$SD_LISTEN_IP" --listen-port "$SD_PORT" \
       >"$LOG" 2>&1 </dev/null &
     echo $! >"$PIDFILE"
     echo "$NAME started (pid $(cat "$PIDFILE"))"
@@ -42,7 +45,7 @@ case "${1:-}" in
     if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
       echo "$NAME running (pid $(cat "$PIDFILE"))"
     else
-      echo "$NAME stopped"
+      echo "$NAME not running"
       exit 1
     fi
     ;;

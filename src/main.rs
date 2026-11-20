@@ -1,4 +1,5 @@
 mod app;
+mod banner;
 mod clients;
 mod config;
 mod media;
@@ -13,7 +14,8 @@ use crossterm::style::Stylize;
 
 use pipeline::{Msg, State};
 
-const USAGE: &str = "usage: melodias-studio                 (TUI)\n       melodias-studio <url> <vibe>     (headless)";
+const USAGE: &str =
+    "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)";
 
 fn main() -> io::Result<()> {
     let cfg = config::Config::from_env();
@@ -46,11 +48,14 @@ fn run_headless(cfg: config::Config, args: &[String]) -> io::Result<()> {
     };
 
     let host = cfg.ssh_host.clone();
+    let gpu = cfg.gpu_label.clone();
     let log_path = std::env::var_os("MELODIAS_LOG").map(PathBuf::from);
     if let Some(path) = &log_path {
         println!("log: {}", path.display());
     }
     let mut out = Reporter::new(log_path)?;
+
+    banner::print(out.pretty, &gpu);
 
     let title = format!("♪ melodias-studio · {host}");
     let colored = out.pretty.then(|| title.as_str().cyan().bold().to_string());
