@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "melodias-studio · from YouTube to thumbnail and loop",
+    "title": "melodias-studio · from YouTube to thumbnail and song",
     "locale": "en",
     "output": "docs/arquitectura.html",
     "quality_profile": "showcase",
@@ -10,11 +10,13 @@
       "url": "https://github.com/jd-apprentice/melodias-studio",
       "provider": "github",
       "link_mode": "web",
-      "revision": "b7a271a3b8bf4a4d88c0d0dc1abcbd54289cd4e9"
+      "revision": "70aedc8bc6ebe0c0cafda60241601f5e2c77a416"
     },
     "legend": {
       "entries": {
-        "database": { "label": "Storage" }
+        "database": {
+          "label": "Storage"
+        }
       }
     }
   },
@@ -24,11 +26,27 @@
       "type": "external",
       "label": "Operator",
       "sublabel": "URL + vibe",
-      "pos": [30, 282],
-      "size": [120, 60],
+      "pos": [
+        30,
+        282
+      ],
+      "size": [
+        120,
+        60
+      ],
       "sources": [
-        { "path": "src/app.rs", "line": 20, "end_line": 30, "label": "input fields" },
-        { "path": "src/app.rs", "line": 49, "end_line": 65, "label": "start needs URL and vibe" }
+        {
+          "path": "src/app.rs",
+          "line": 22,
+          "end_line": 32,
+          "label": "input fields"
+        },
+        {
+          "path": "src/app.rs",
+          "line": 53,
+          "end_line": 69,
+          "label": "start needs URL and vibe"
+        }
       ]
     },
     {
@@ -36,11 +54,27 @@
       "type": "frontend",
       "label": "ratatui TUI",
       "sublabel": "stages and log",
-      "pos": [240, 282],
-      "size": [130, 60],
+      "pos": [
+        240,
+        282
+      ],
+      "size": [
+        130,
+        60
+      ],
       "sources": [
-        { "path": "src/app.rs", "line": 106, "end_line": 150, "label": "key loop" },
-        { "path": "src/app.rs", "line": 152, "end_line": 445, "label": "screen layout" }
+        {
+          "path": "src/app.rs",
+          "line": 158,
+          "end_line": 202,
+          "label": "key loop"
+        },
+        {
+          "path": "src/app.rs",
+          "line": 204,
+          "end_line": 510,
+          "label": "screen layout"
+        }
       ]
     },
     {
@@ -48,11 +82,27 @@
       "type": "backend",
       "label": "pipeline.rs",
       "sublabel": "9 sequential stages",
-      "pos": [470, 270],
-      "size": [160, 84],
+      "pos": [
+        470,
+        270
+      ],
+      "size": [
+        160,
+        84
+      ],
       "sources": [
-        { "path": "src/pipeline.rs", "line": 10, "end_line": 20, "label": "stage order" },
-        { "path": "src/pipeline.rs", "line": 69, "end_line": 217, "label": "run()" }
+        {
+          "path": "src/pipeline.rs",
+          "line": 10,
+          "end_line": 20,
+          "label": "stage order"
+        },
+        {
+          "path": "src/pipeline.rs",
+          "line": 82,
+          "end_line": 234,
+          "label": "run()"
+        }
       ]
     },
     {
@@ -60,12 +110,33 @@
       "type": "backend",
       "label": "media.rs",
       "sublabel": "yt-dlp · ffmpeg · scp",
-      "pos": [250, 600],
-      "size": [160, 64],
+      "pos": [
+        250,
+        600
+      ],
+      "size": [
+        160,
+        64
+      ],
       "sources": [
-        { "path": "src/media.rs", "line": 39, "end_line": 58, "label": "WAV download" },
-        { "path": "src/media.rs", "line": 62, "end_line": 117, "label": "RMS selection" },
-        { "path": "src/media.rs", "line": 159, "end_line": 188, "label": "loop and loudnorm" }
+        {
+          "path": "src/media.rs",
+          "line": 39,
+          "end_line": 58,
+          "label": "WAV download"
+        },
+        {
+          "path": "src/media.rs",
+          "line": 62,
+          "end_line": 117,
+          "label": "RMS selection"
+        },
+        {
+          "path": "src/media.rs",
+          "line": 200,
+          "end_line": 225,
+          "label": "master and loudnorm"
+        }
       ]
     },
     {
@@ -73,10 +144,21 @@
       "type": "external",
       "label": "YouTube",
       "sublabel": "source song",
-      "pos": [500, 600],
-      "size": [150, 64],
+      "pos": [
+        500,
+        600
+      ],
+      "size": [
+        150,
+        64
+      ],
       "sources": [
-        { "path": "src/media.rs", "line": 39, "end_line": 58, "label": "yt-dlp invocation" }
+        {
+          "path": "src/media.rs",
+          "line": 39,
+          "end_line": 58,
+          "label": "yt-dlp invocation"
+        }
       ]
     },
     {
@@ -84,11 +166,27 @@
       "type": "backend",
       "label": "llama-server :8080",
       "sublabel": "Qwen3-4B · 3.4 GB",
-      "pos": [760, 130],
-      "size": [180, 64],
+      "pos": [
+        760,
+        130
+      ],
+      "size": [
+        180,
+        64
+      ],
       "sources": [
-        { "path": "src/clients.rs", "line": 86, "end_line": 123, "label": "image prompt" },
-        { "path": "deploy/serve-llm.sh", "line": 16, "end_line": 19, "label": "model and port" }
+        {
+          "path": "src/clients.rs",
+          "line": 86,
+          "end_line": 123,
+          "label": "image prompt"
+        },
+        {
+          "path": "deploy/serve-llm.sh",
+          "line": 16,
+          "end_line": 19,
+          "label": "model and port"
+        }
       ]
     },
     {
@@ -96,11 +194,27 @@
       "type": "backend",
       "label": "sd-server :1234",
       "sublabel": "MOSS-Image · 11.4 GB",
-      "pos": [760, 280],
-      "size": [180, 64],
+      "pos": [
+        760,
+        280
+      ],
+      "size": [
+        180,
+        64
+      ],
       "sources": [
-        { "path": "src/clients.rs", "line": 161, "end_line": 182, "label": "image generation" },
-        { "path": "deploy/serve-sd.sh", "line": 16, "end_line": 23, "label": "model load" }
+        {
+          "path": "src/clients.rs",
+          "line": 161,
+          "end_line": 182,
+          "label": "image generation"
+        },
+        {
+          "path": "deploy/serve-sd.sh",
+          "line": 16,
+          "end_line": 23,
+          "label": "model load"
+        }
       ]
     },
     {
@@ -108,12 +222,33 @@
       "type": "backend",
       "label": "audiocpp_server :8090",
       "sublabel": "ACE-Step · 10 GB",
-      "pos": [760, 430],
-      "size": [180, 64],
+      "pos": [
+        760,
+        430
+      ],
+      "size": [
+        180,
+        64
+      ],
       "sources": [
-        { "path": "src/clients.rs", "line": 125, "end_line": 159, "label": "take with reference" },
-        { "path": "deploy/serve-audio.sh", "line": 16, "end_line": 18, "label": "startup" },
-        { "path": "deploy/audio-server.json", "line": 1, "end_line": 18, "label": "ace-step model" }
+        {
+          "path": "src/clients.rs",
+          "line": 125,
+          "end_line": 159,
+          "label": "take with reference"
+        },
+        {
+          "path": "deploy/serve-audio.sh",
+          "line": 16,
+          "end_line": 18,
+          "label": "startup"
+        },
+        {
+          "path": "deploy/audio-server.json",
+          "line": 1,
+          "end_line": 18,
+          "label": "ace-step model"
+        }
       ]
     },
     {
@@ -121,10 +256,21 @@
       "type": "database",
       "label": "output/<slug>",
       "sublabel": "audio.mp3 · PNG · meta.json",
-      "pos": [40, 600],
-      "size": [150, 64],
+      "pos": [
+        40,
+        600
+      ],
+      "size": [
+        150,
+        64
+      ],
       "sources": [
-        { "path": "src/pipeline.rs", "line": 179, "end_line": 209, "label": "copy and metadata" }
+        {
+          "path": "src/pipeline.rs",
+          "line": 195,
+          "end_line": 226,
+          "label": "copy and metadata"
+        }
       ]
     }
   ],
@@ -132,19 +278,70 @@
     {
       "kind": "region",
       "label": "VM 192.168.88.38 · Tesla P40 24 GB",
-      "wraps": ["llm", "sd", "audio"]
+      "wraps": [
+        "llm",
+        "sd",
+        "audio"
+      ]
     }
   ],
   "connections": [
-    { "id": "operador-tui", "from": "operador", "to": "tui", "label": "URL + vibe", "variant": "emphasis" },
-    { "id": "tui-pipeline", "from": "tui", "to": "pipeline", "label": "per-stage progress" },
-    { "id": "pipeline-llm", "from": "pipeline", "to": "llm", "label": "image prompt" },
-    { "id": "pipeline-sd", "from": "pipeline", "to": "sd", "label": "PNG 1280x720", "variant": "emphasis" },
-    { "id": "pipeline-audio", "from": "pipeline", "to": "audio", "label": "210 s take" },
-    { "id": "pipeline-media", "from": "pipeline", "to": "media", "label": "download · loop" },
-    { "id": "media-youtube", "from": "media", "to": "youtube", "label": "yt-dlp WAV" },
-    { "id": "media-audio", "from": "media", "to": "audio", "label": "scp reference" },
-    { "id": "pipeline-salida", "from": "pipeline", "to": "salida", "label": "audio.mp3 + meta" }
+    {
+      "id": "operador-tui",
+      "from": "operador",
+      "to": "tui",
+      "label": "URL + vibe",
+      "variant": "emphasis"
+    },
+    {
+      "id": "tui-pipeline",
+      "from": "tui",
+      "to": "pipeline",
+      "label": "per-stage progress"
+    },
+    {
+      "id": "pipeline-llm",
+      "from": "pipeline",
+      "to": "llm",
+      "label": "image prompt"
+    },
+    {
+      "id": "pipeline-sd",
+      "from": "pipeline",
+      "to": "sd",
+      "label": "PNG 1280x720",
+      "variant": "emphasis"
+    },
+    {
+      "id": "pipeline-audio",
+      "from": "pipeline",
+      "to": "audio",
+      "label": "210 s take"
+    },
+    {
+      "id": "pipeline-media",
+      "from": "pipeline",
+      "to": "media",
+      "label": "download · master"
+    },
+    {
+      "id": "media-youtube",
+      "from": "media",
+      "to": "youtube",
+      "label": "yt-dlp WAV"
+    },
+    {
+      "id": "media-audio",
+      "from": "media",
+      "to": "audio",
+      "label": "scp reference"
+    },
+    {
+      "id": "pipeline-salida",
+      "from": "pipeline",
+      "to": "salida",
+      "label": "audio.mp3 + meta"
+    }
   ],
   "cards": [
     {
@@ -169,9 +366,9 @@
     },
     {
       "dot": "emerald",
-      "title": "Loop and output",
+      "title": "Master and output",
       "items": [
-        "audio.mp3, 320 kbps, -15 LUFS, fixed 3 s crossfade",
+        "audio.mp3, 320 kbps, -15 LUFS, 1.5 s fade-in and 3 s fade-out",
         "Every track is instrumental; vocals are in the negative prompt",
         "The PNG is validated by reading its header",
         "meta.json stores the seed, prompt and parameters",
