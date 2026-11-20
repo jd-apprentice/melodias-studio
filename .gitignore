@@ -1,6 +1,9 @@
 /target
 /output
 *.wav
+*.db
+*.db-wal
+*.db-shm
 /.archify
 /assets/videos
 /video/node_modules

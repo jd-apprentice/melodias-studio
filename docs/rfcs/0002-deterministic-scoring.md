@@ -1,6 +1,6 @@
 # 0002 · Deterministic scoring and feedback loop
 
-Status: accepted. Phase 1 is implemented; the database write, `melodias history` and the retry loop are not.
+Status: accepted. Phases 1 and 2 are implemented, plus a first dashboard; the retry loop is not.
 
 Date: 2026-11-20
 
@@ -178,7 +178,7 @@ $XDG_CONFIG_HOME/melodias-studio/history.db
 
 `MELODIAS_DB` overrides it, so a run can write into a repo checkout during development. `.gitignore` gets `*.db`, `*.db-wal` and `*.db-shm`. WAL mode, one writer at a time, no server.
 
-Writing is part of the run. When the pipeline finishes, it records one `runs` row, one row per candidate and one `findings` row per lost point, including the judge verdict when there is one. A failed write is logged and never aborts the run, the same way the judge fails open. `melodias history` only reads; it never writes.
+Writing is part of the run. When the pipeline finishes, it records one `runs` row, one row per candidate and one `findings` row per lost point, including the judge verdict when there is one. The score is computed right after the video and also written to `work/score.json`. A failed write is logged and never aborts the run, the same way the judge fails open. `melodias history` only reads; it never writes.
 
 ```sql
 create table runs (
@@ -235,7 +235,7 @@ The `rubric` column matters: a threshold change starts a new version, and trends
 
 ### Backfill
 
-`scripts/backfill-history.sh`, also available as `make backfill`, scores the runs already in `output/` with the same rubric, so the history starts with data. It skips a slug that is already present and rewrites it with `--replace`. The first database was built this way, before any pipeline change. All three runs scored below the target, which is the expected starting point:
+`scripts/backfill-history.sh`, also available as `make backfill`, scores the runs already in `output/` with the same rubric, so the history starts with data. It skips a slug that is already present and rewrites it with `--replace`. It writes the same tables as the pipeline, so `melodias history` reads both. The first database was built this way, before any pipeline change. All three runs scored below the target, which is the expected starting point:
 
 | Run | Technical | Editorial | Total |
 | --- | --- | --- | --- |
@@ -266,6 +266,7 @@ melodias history                  # last 20 runs
 melodias history --json | --csv
 melodias history findings         # cost per code
 melodias history trend --by day
+melodias dashboard                # local read-only charts at 127.0.0.1:7373
 ```
 
 `score` works on any finished run, including runs made before the rubric existed. That makes the first rollout measurable without regenerating anything.
@@ -303,15 +304,15 @@ The editorial score is the weak part and the RFC does not hide it:
 ## Phases
 
 1. **Metrics and `melodias score`.** Done: `src/score.rs`, pure functions over pixel buffers plus parsers for `ffmpeg` output, `melodias score <dir>` and `work/score.json`, findings in the report. Every candidate and the final pair are scored; drafts skip the master-only metrics. No database, no loop.
-2. **History in every run.** `rusqlite` with the bundled feature, one write at the end of a run, `melodias history` reads. `MELODIAS_DB` and the default path. `scripts/backfill-history.sh` covers the runs made before it exists.
+2. **History in every run.** Done: `rusqlite` with the bundled feature, one write at the end of a run, `melodias history` reads. `MELODIAS_DB` and the default path. Findings of the final pair are stored at run level (`candidate_id` null); the pool candidates keep their full score in `candidates.score_json`. `scripts/backfill-history.sh` covers the runs made before it existed.
 3. **Retry loop.** Patch table, budget, `accepted_by_limit`, `must_fix` codes in the judge prompt.
-4. **Dashboard.** Static HTML or a small page over the CSV export, once there are enough runs.
+4. **Dashboard.** Done (first version): `melodias dashboard` serves a local read-only page over the database with the score per run and the cost per finding. It is a Rust server plus static files in `dashboard/`, polls every three seconds and needs no build step. A static export over the CSV is still open.
 
 ## Tests
 
 - Pure functions take pixel buffers and parsed numbers, so most tests need no `ffmpeg`: palette buckets, contrast curve, glow share, score composition, delta and severity.
 - Parsers get captured `ffmpeg` output as string fixtures: `ebur128`, `astats`, `silencedetect`, `aspectralstats`.
-- One ignored integration test runs the real binary on `output/` when a run exists.
+- One ignored test writes a real run from `output/` into a temporary database when a run exists.
 - The judge JSON contract gets a test that rejects a score without findings.
 
 ## Risks

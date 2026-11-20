@@ -16,6 +16,8 @@ pub struct Config {
     pub ssh_host: String,
     pub remote_ref_dir: String,
     pub out_dir: PathBuf,
+    /// SQLite file behind `melodias history`.
+    pub db_path: PathBuf,
     /// Optional lifecycle commands run over SSH between GPU stages.
     pub llm_start_cmd: String,
     pub llm_stop_cmd: String,
@@ -86,6 +88,10 @@ impl Config {
                 .map(PathBuf::from)
                 .or(file.out_dir)
                 .unwrap_or_else(|| PathBuf::from("output")),
+            db_path: env("MELODIAS_DB")
+                .map(PathBuf::from)
+                .or(file.db_path)
+                .unwrap_or_else(Self::default_db_path),
             llm_start_cmd: pick(
                 env("LLM_START_CMD"),
                 file.llm_start_cmd,
@@ -192,6 +198,11 @@ impl Config {
             .unwrap_or_else(|| PathBuf::from("."));
         base.join("melodias-studio").join("config.toml")
     }
+
+    /// Next to `config.toml`, or in the directory of `MELODIAS_CONFIG`.
+    pub fn default_db_path() -> PathBuf {
+        Self::config_path().with_file_name("history.db")
+    }
 }
 
 fn parse_bool(value: &str) -> bool {
@@ -233,6 +244,7 @@ struct FileConfig {
     ssh_host: Option<String>,
     remote_ref_dir: Option<String>,
     out_dir: Option<PathBuf>,
+    db_path: Option<PathBuf>,
     llm_start_cmd: Option<String>,
     llm_stop_cmd: Option<String>,
     sd_start_cmd: Option<String>,

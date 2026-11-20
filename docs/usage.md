@@ -89,6 +89,34 @@ The image side is palette, contrast at 168 px, text, glow and saturation. The au
 
 The text check uses `tesseract`. Without it, `IMG_TEXT` is skipped and the image side is renormalized over the remaining metrics.
 
+### History
+
+Every finished run records itself in a local SQLite database after the video stage, so the next command does not need the run directory. `melodias history` shows the last 20 runs; `findings` ranks the codes by the points they cost; `trend` averages by day, week or month. `--json` and `--csv` feed a script, and the whole view only reads:
+
+```bash
+melodias history
+melodias history findings
+melodias history trend --by week
+melodias history --json
+# or
+make history ARGS=findings
+```
+
+The file is `history.db` next to `config.toml`, and `MELODIAS_DB` overrides it. Runs made before the write existed are added with `make backfill`. See [configuration.md](configuration.md#history) for the schema, permissions and failure behavior.
+
+### Dashboard
+
+`melodias dashboard` serves a read-only page at `http://127.0.0.1:7373/` with the score over runs, the findings that cost the most and the run table. It opens the database for reading only, never creates or migrates it, and refreshes every three seconds, so a finished run appears without reloading. It binds localhost only.
+
+```bash
+melodias dashboard
+melodias dashboard --port 8080 --limit 500
+# or
+make dashboard
+```
+
+The page is served by the binary from `dashboard/`, with no Node, no build step and no network. `--limit` sets how many runs the charts and the API read (200 by default).
+
 ### Produced video with Remotion
 
 For the richer composition (bokeh overlays, birds, audio-reactive bars, channel label):

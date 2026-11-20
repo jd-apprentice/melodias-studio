@@ -849,6 +849,16 @@ fn editorial(dir: &Path) -> Option<f64> {
         .or_else(|| verdict.pointer("/judge/score").and_then(Value::as_f64))
 }
 
+/// Writes the full report to `work/score.json` and returns the path.
+pub fn write_json(dir: &Path, run: &RunScore) -> Result<PathBuf> {
+    let work = dir.join("work");
+    fs::create_dir_all(&work)?;
+    let path = work.join("score.json");
+    fs::write(&path, serde_json::to_vec_pretty(run)?)
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(path)
+}
+
 fn pool_path(dir: &Path, file: &str) -> PathBuf {
     let name = Path::new(file)
         .file_name()

@@ -1,11 +1,11 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 
-use crate::{clients, config::Config, judge, media};
+use crate::{clients, config::Config, history, judge, media, score};
 
 pub const STAGES: [&str; 11] = [
     "Image prompt",
@@ -129,6 +129,8 @@ fn run(
     std::fs::create_dir_all(&candidates_dir).context("creating the candidates directory")?;
     let seed = random_seed();
     let image_seed = cfg.image_seed.unwrap_or_else(random_seed);
+    let started_at = history::now_iso8601();
+    let clock = Instant::now();
 
     log(tx, format!("working in {}", root.display()));
     log(
@@ -468,6 +470,8 @@ fn run(
         Ok(video)
     })?;
 
+    record_history(cfg, tx, &root, &slug, vibe, &started_at, clock);
+
     Ok(Outcome {
         audio: final_audio,
         image: final_image,
@@ -475,6 +479,70 @@ fn run(
         seed: selected_audio.seed,
         image_prompt,
     })
+}
+
+/// Scores the finished run and appends it to the local database. Failures are
+/// logged and never abort the run, the same way the judge fails open.
+fn record_history(
+    cfg: &Config,
+    tx: &Sender<Msg>,
+    root: &Path,
+    slug: &str,
+    vibe: &str,
+    started_at: &str,
+    clock: Instant,
+) {
+    let record = history::RunRecord {
+        db: &cfg.db_path,
+        dir: root,
+        slug,
+        vibe,
+        started_at,
+        seconds: clock.elapsed().as_secs_f64(),
+        rounds: 0,
+    };
+    log(tx, "history: scoring the run for the local database");
+    let result = score::score_run(root).and_then(|score| {
+        score::write_json(root, &score)?;
+        let id = history::insert(&record, &score)?;
+        Ok((id, score))
+    });
+    match result {
+        Ok((id, score)) => {
+            log(
+                tx,
+                format!(
+                    "history: run {id} · technical {:.1} · total {:.1} · {}",
+                    score.technical,
+                    score.total,
+                    if score.accepted {
+                        "accepted"
+                    } else {
+                        "below target"
+                    }
+                ),
+            );
+            let worst = score
+                .final_image
+                .findings
+                .iter()
+                .chain(score.final_audio.findings.iter())
+                .min_by(|a, b| a.delta.total_cmp(&b.delta));
+            if let Some(finding) = worst {
+                log(
+                    tx,
+                    format!(
+                        "history: worst finding {} {:+.1} ({})",
+                        finding.code, finding.delta, finding.message
+                    ),
+                );
+            }
+        }
+        Err(error) => log(
+            tx,
+            format!("warning: the history was not written: {error:#}"),
+        ),
+    }
 }
 
 fn random_seed() -> u32 {
