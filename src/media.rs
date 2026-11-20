@@ -1,8 +1,42 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 
 use anyhow::{Context, Result, bail};
+
+static CHILD_LOG: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// Sends child process output to the run log instead of the terminal, so a long
+/// pipeline run and its tools do not fight for the screen.
+pub fn set_child_log(path: PathBuf) {
+    if let Ok(mut slot) = CHILD_LOG.lock() {
+        *slot = Some(path);
+    }
+}
+
+fn log_file() -> Option<std::fs::File> {
+    let path = CHILD_LOG.lock().ok()?.clone()?;
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .ok()
+}
+
+fn attach_output(cmd: &mut Command) {
+    if let Some(file) = log_file()
+        && let Ok(err) = file.try_clone()
+    {
+        cmd.stdout(file).stderr(err);
+    }
+}
+
+fn attach_stderr(cmd: &mut Command) {
+    if let Some(file) = log_file() {
+        cmd.stderr(file);
+    }
+}
 
 pub fn preflight() -> Result<()> {
     for bin in ["yt-dlp", "ffmpeg", "ffprobe", "scp"] {
@@ -39,14 +73,14 @@ pub fn png_size(path: &Path) -> Result<(u32, u32)> {
 pub fn download_audio(url: &str, dir: &Path) -> Result<PathBuf> {
     std::fs::create_dir_all(dir)?;
     let template = dir.join("source.%(ext)s");
-    let status = Command::new("yt-dlp")
-        .args(["--no-playlist", "-x", "--audio-format", "wav"])
+    let mut cmd = Command::new("yt-dlp");
+    cmd.args(["--no-playlist", "-x", "--audio-format", "wav"])
         .args(["--postprocessor-args", "-ar 48000 -ac 2"])
         .arg("-o")
         .arg(&template)
-        .arg(url)
-        .status()
-        .context("ejecutando yt-dlp")?;
+        .arg(url);
+    attach_output(&mut cmd);
+    let status = cmd.status().context("ejecutando yt-dlp")?;
     if !status.success() {
         bail!("yt-dlp falló con {status}");
     }
@@ -61,13 +95,13 @@ pub fn download_audio(url: &str, dir: &Path) -> Result<PathBuf> {
 /// intros and breakdowns, and writes it as a 48 kHz stereo reference WAV.
 pub fn pick_reference(src: &Path, dir: &Path) -> Result<PathBuf> {
     let total = duration_secs(src)?;
-    let mut child = Command::new("ffmpeg")
-        .args(["-v", "error", "-i"])
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(["-v", "error", "-i"])
         .arg(src)
         .args(["-f", "f32le", "-ac", "1", "-ar", "8000", "-"])
-        .stdout(Stdio::piped())
-        .spawn()
-        .context("decodificando para medir energía")?;
+        .stdout(Stdio::piped());
+    attach_stderr(&mut cmd);
+    let mut child = cmd.spawn().context("decodificando para medir energía")?;
 
     let mut raw = Vec::new();
     child
@@ -112,17 +146,17 @@ pub fn pick_reference(src: &Path, dir: &Path) -> Result<PathBuf> {
     let begin = (start / 8000) as f64;
     let seconds = len.min(samples.len()) as f64 / 8000.0;
     let out = dir.join("reference.wav");
-    let status = Command::new("ffmpeg")
-        .args(["-v", "error", "-y", "-ss"])
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(["-v", "error", "-y", "-ss"])
         .arg(format!("{begin:.2}"))
         .args(["-t"])
         .arg(format!("{seconds:.2}"))
         .arg("-i")
         .arg(src)
         .args(["-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le"])
-        .arg(&out)
-        .status()
-        .context("cortando referencia")?;
+        .arg(&out);
+    attach_output(&mut cmd);
+    let status = cmd.status().context("cortando referencia")?;
     if !status.success() {
         bail!("ffmpeg falló cortando la referencia");
     }
@@ -135,20 +169,21 @@ pub fn pick_reference(src: &Path, dir: &Path) -> Result<PathBuf> {
 /// Copies the reference to the GPU VM and returns its remote path.
 pub fn push_reference(cfg: &crate::config::Config, local: &Path, slug: &str) -> Result<String> {
     let remote = format!("{}/{}.wav", cfg.remote_ref_dir.trim_end_matches('/'), slug);
-    let mkdir = Command::new("ssh")
+    let mut mkdir = Command::new("ssh");
+    mkdir
         .arg(&cfg.ssh_host)
-        .arg(format!("mkdir -p {}", cfg.remote_ref_dir))
-        .status()
-        .context("creando el directorio remoto")?;
-    if !mkdir.success() {
+        .arg(format!("mkdir -p {}", cfg.remote_ref_dir));
+    attach_output(&mut mkdir);
+    let status = mkdir.status().context("creando el directorio remoto")?;
+    if !status.success() {
         bail!("no pude crear {} en {}", cfg.remote_ref_dir, cfg.ssh_host);
     }
-    let status = Command::new("scp")
-        .arg("-q")
+    let mut copy = Command::new("scp");
+    copy.arg("-q")
         .arg(local)
-        .arg(format!("{}:{remote}", cfg.ssh_host))
-        .status()
-        .context("copiando la referencia")?;
+        .arg(format!("{}:{remote}", cfg.ssh_host));
+    attach_output(&mut copy);
+    let status = copy.status().context("copiando la referencia")?;
     if !status.success() {
         bail!("scp falló copiando la referencia");
     }
@@ -171,14 +206,14 @@ pub fn make_loop(src: &Path, dir: &Path) -> Result<PathBuf> {
          [core][seam]concat=n=2:v=0:a=1,loudnorm=I=-15:TP=-1.5[out]"
     );
     let out = dir.join("loop.wav");
-    let status = Command::new("ffmpeg")
-        .args(["-v", "error", "-y", "-i"])
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(["-v", "error", "-y", "-i"])
         .arg(src)
         .args(["-filter_complex", &graph, "-map", "[out]"])
         .args(["-c:a", "pcm_s16le"])
-        .arg(&out)
-        .status()
-        .context("armando el loop")?;
+        .arg(&out);
+    attach_output(&mut cmd);
+    let status = cmd.status().context("armando el loop")?;
     if !status.success() {
         bail!("ffmpeg falló armando el loop");
     }
@@ -190,11 +225,10 @@ pub fn ssh_run(cfg: &crate::config::Config, command: &str) -> Result<()> {
     if command.trim().is_empty() {
         return Ok(());
     }
-    let status = Command::new("ssh")
-        .arg(&cfg.ssh_host)
-        .arg(command)
-        .status()
-        .with_context(|| format!("ssh {command}"))?;
+    let mut cmd = Command::new("ssh");
+    cmd.arg(&cfg.ssh_host).arg(command);
+    attach_output(&mut cmd);
+    let status = cmd.status().with_context(|| format!("ssh {command}"))?;
     if !status.success() {
         bail!("el comando remoto falló ({status}): {command}");
     }
@@ -203,13 +237,13 @@ pub fn ssh_run(cfg: &crate::config::Config, command: &str) -> Result<()> {
 
 pub fn encode_mp3(wav: &Path, dir: &Path, kbps: u32) -> Result<PathBuf> {
     let out = dir.join("audio.mp3");
-    let status = Command::new("ffmpeg")
-        .args(["-v", "error", "-y", "-i"])
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(["-v", "error", "-y", "-i"])
         .arg(wav)
         .args(["-codec:a", "libmp3lame", "-b:a", &format!("{kbps}k")])
-        .arg(&out)
-        .status()
-        .context("codificando mp3")?;
+        .arg(&out);
+    attach_output(&mut cmd);
+    let status = cmd.status().context("codificando mp3")?;
     if !status.success() {
         bail!("ffmpeg falló codificando el mp3");
     }

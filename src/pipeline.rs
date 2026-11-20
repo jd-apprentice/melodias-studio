@@ -66,6 +66,19 @@ fn log(tx: &Sender<Msg>, text: impl Into<String>) {
     let _ = tx.send(Msg::Log(text.into()));
 }
 
+/// One line per stage transition, shared by the TUI log and the headless view.
+pub fn stage_label(idx: usize, state: State) -> Option<String> {
+    let name = STAGES.get(idx)?;
+    let number = idx + 1;
+    let total = STAGES.len();
+    match state {
+        State::Pending => None,
+        State::Running => Some(format!("▶ {number}/{total} {name}")),
+        State::Ok => Some(format!("✔ {number}/{total} {name}")),
+        State::Failed => Some(format!("✖ {number}/{total} {name}")),
+    }
+}
+
 fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome> {
     let slug = slugify(vibe);
     let work = cfg.out_dir.join(&slug).join("work");

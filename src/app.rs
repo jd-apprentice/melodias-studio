@@ -1,5 +1,7 @@
+use std::fs::{File, OpenOptions};
+use std::io::Write;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -28,6 +30,7 @@ struct App {
     running: bool,
     summary: Option<String>,
     tick: u64,
+    log: Option<File>,
 }
 
 impl App {
@@ -43,6 +46,7 @@ impl App {
             running: false,
             summary: None,
             tick: 0,
+            log: None,
         }
     }
 
@@ -56,6 +60,7 @@ impl App {
         self.logs.clear();
         self.summary = None;
         self.running = true;
+        self.open_log();
         pipeline::spawn(
             self.cfg.clone(),
             self.url.trim().to_string(),
@@ -64,20 +69,63 @@ impl App {
         );
     }
 
+    fn open_log(&mut self) {
+        let path = self.cfg.out_dir.join(format!("run-{}.log", unix_seconds()));
+        if let Some(parent) = path.parent()
+            && std::fs::create_dir_all(parent).is_err()
+        {
+            self.log = None;
+            return;
+        }
+        match OpenOptions::new().create(true).append(true).open(&path) {
+            Ok(file) => {
+                crate::media::set_child_log(path.clone());
+                self.log = Some(file);
+                let label = format!("log: {}", path.display());
+                write_line(
+                    &mut self.log,
+                    &format!("♪ melodias-studio · {}", self.cfg.ssh_host),
+                );
+                write_line(&mut self.log, &label);
+                self.logs.push(label);
+            }
+            Err(_) => self.log = None,
+        }
+    }
+
     fn drain(&mut self) {
         let Some(rx) = &self.rx else { return };
         loop {
             match rx.try_recv() {
                 Ok(Msg::Stage(idx, state)) => {
+                    if let Some(label) = pipeline::stage_label(idx, state) {
+                        write_line(&mut self.log, &label);
+                    }
                     if let Some(slot) = self.states.get_mut(idx) {
                         *slot = state;
                     }
                 }
-                Ok(Msg::Log(text)) => self.logs.push(text),
+                Ok(Msg::Log(text)) => {
+                    write_line(&mut self.log, &format!("   · {text}"));
+                    self.logs.push(text);
+                }
                 Ok(Msg::Done(result)) => {
                     self.running = false;
                     match result {
                         Ok(outcome) => {
+                            write_line(&mut self.log, "");
+                            write_line(
+                                &mut self.log,
+                                &format!(
+                                    "✔ listo · seed {} · {}",
+                                    outcome.seed,
+                                    outcome.audio.display()
+                                ),
+                            );
+                            write_line(
+                                &mut self.log,
+                                &format!("✔ miniatura · {}", outcome.image.display()),
+                            );
                             self.summary = Some(format!(
                                 "listo · seed {} · {}",
                                 outcome.seed,
@@ -87,8 +135,12 @@ impl App {
                                 .push(format!("miniatura: {}", outcome.image.display()));
                             self.logs.push(format!("prompt: {}", outcome.image_prompt));
                         }
-                        Err(err) => self.summary = Some(format!("falló: {err}")),
+                        Err(err) => {
+                            write_line(&mut self.log, &format!("✖ falló: {err}"));
+                            self.summary = Some(format!("falló: {err}"));
+                        }
                     }
+                    self.log = None;
                     self.rx = None;
                     break;
                 }
@@ -405,6 +457,19 @@ fn key_style() -> Style {
 
 fn hint_style() -> Style {
     Style::default().fg(Color::DarkGray)
+}
+
+fn write_line(log: &mut Option<File>, line: &str) {
+    if let Some(file) = log.as_mut() {
+        let _ = writeln!(file, "{line}");
+    }
+}
+
+fn unix_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|time| time.as_secs())
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

@@ -27,9 +27,7 @@ generate:
 	@mkdir -p "$(LOG_DIR)"
 	@$(CARGO) build --release
 	@log="$(LOG_DIR)/run-$$(date +%Y%m%d-%H%M%S).log"; \
-	  echo "log: $$log"; \
-	  set -o pipefail; \
-	  $(BIN) "$(URL)" "$(VIBE)" 2>&1 | tee "$$log"
+	  MELODIAS_LOG="$$log" $(BIN) "$(URL)" "$(VIBE)"
 
 build:
 	$(CARGO) build

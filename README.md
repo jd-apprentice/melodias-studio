@@ -52,18 +52,13 @@ Each stage shows its state, the progress bar tracks how many are done, and the l
 
 ### Headless run
 
-Passing the URL and the vibe as arguments runs the same pipeline without the full screen UI, printing one line per stage and per log message:
+Passing the URL and the vibe as arguments runs the same pipeline without the full screen UI. Each stage is printed as its own colored group with an icon, and tool output from `yt-dlp`, `ffmpeg` and `ssh` goes to the run log instead of the screen:
 
 ```bash
-cargo run -- 'https://www.youtube.com/watch?v=...' 'epic 8-bit orchestral finale'
+MELODIAS_LOG=output/run.log cargo run -- 'https://www.youtube.com/watch?v=...' 'epic 8-bit orchestral finale'
 ```
 
-Quote the URL: a YouTube link copied from a playlist carries `&list=` and `&index=`, which the shell would otherwise split. The exit code is non-zero when a stage fails, so it can be wrapped in `tee` or a CI job:
-
-```bash
-set -o pipefail
-cargo run -- 'https://www.youtube.com/watch?v=...' 'epic 8-bit orchestral finale' 2>&1 | tee output/run.log
-```
+The log receives the same lines as plain text, so it can be read later without escape codes. Quote the URL: a YouTube link copied from a playlist carries `&list=` and `&index=`, which the shell would otherwise split. The exit code is non-zero when a stage fails.
 
 The image stage reports its own duration and the size of the PNG it got back, and warns when the server returned something other than the requested size.
 
@@ -74,7 +69,7 @@ The `Makefile` wraps the common commands:
 | Target | What it does |
 | --- | --- |
 | `make run` | Opens the TUI |
-| `make generate URL='...' VIBE='...'` | Runs headless and tees the log to `output/run-<timestamp>.log` |
+| `make generate URL='...' VIBE='...'` | Runs headless and writes `output/run-<timestamp>.log` |
 | `make log` | Prints the last 40 lines of the newest log |
 | `make check` | `fmt --check`, build, `clippy -D warnings` and tests |
 | `make status` | Service state on the VM over SSH |
