@@ -8,6 +8,7 @@ mod judge;
 mod media;
 mod pipeline;
 mod references;
+mod refs;
 mod retry;
 mod score;
 mod video;
@@ -22,7 +23,7 @@ use crossterm::style::Stylize;
 
 use pipeline::{Msg, State};
 
-const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias image <dir>      (regenerate the thumbnail of a run)\n       melodias judge <dir>      (review a finished run with the judge)\n       melodias score <dir>      (score a finished run, no GPU)\n       melodias history [view]   (runs, findings or trend, from the local database)\n       melodias dashboard        (local read-only charts over the database)\n       melodias render <dir>     (produced video with Remotion)\n       melodias video <dir>      (fast video with ffmpeg)";
+const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias image <dir>      (regenerate the thumbnail of a run)\n       melodias judge <dir>      (review a finished run with the judge)\n       melodias score <dir>      (score a finished run, no GPU)\n       melodias history [view]   (runs, findings or trend, from the local database)\n       melodias dashboard        (local read-only charts over the database)\n       melodias render <dir>     (produced video with Remotion)\n       melodias video <dir>      (fast video with ffmpeg)\n       melodias refs fetch       (fill the reference library from a source)\n       melodias refs import      (import files or packs into the library)";
 
 fn main() -> io::Result<()> {
     let cfg = config::Config::from_env();
@@ -54,6 +55,9 @@ fn main() -> io::Result<()> {
     }
     if args.first().is_some_and(|arg| arg == "video") {
         return run_video(cfg, &args);
+    }
+    if args.first().is_some_and(|arg| arg == "refs") {
+        return run_refs(cfg, &args);
     }
     if !args.is_empty() {
         return run_headless(cfg, &args);
@@ -676,6 +680,10 @@ impl Reporter {
         let colored = self.pretty.then(|| plain.as_str().dark_grey().to_string());
         self.line(&plain, colored);
     }
+}
+
+fn run_refs(cfg: config::Config, args: &[String]) -> io::Result<()> {
+    refs::cli::run(&cfg, &args[1..]).map_err(|error| io::Error::other(format!("{error:#}")))
 }
 
 #[cfg(test)]

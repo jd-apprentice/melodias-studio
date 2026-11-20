@@ -39,6 +39,7 @@ cp config.example.toml ~/.config/melodias-studio/config.toml
 | `JUDGE_PROVIDER` | `auto` | `opencode`, `openrouter` or `auto` (OpenCode when its key is set) |
 | `OPENCODE_API_KEY` | empty | OpenCode Go key; the default backend |
 | `OPENROUTER_API_KEY` | empty | alternative backend; export it in the shell that runs `melodias` |
+| `PIXABAY_API_KEY` | empty | key for `melodias refs fetch --source pixabay`; `pixabay.key` also works |
 | `JUDGE_MODEL` | `gemini-4-argon` | OpenCode Go model, native Gemini API |
 | `JUDGE_OMNI_MODEL` | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` | OpenRouter perception model |
 | `JUDGE_REASONER_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b:free` | OpenRouter text-only final choice |
@@ -108,35 +109,43 @@ Use images you have the rights to, for example your own art or CC0 packs. The ap
 
 ### Building a library
 
-Two helper scripts fill the folder. Neither script runs inside the app and the key never reaches the repository.
+`melodias refs fetch --source NAME` fills the folder. A source only discovers candidates; the app downloads, normalizes, deduplicates and writes the manifest. Adding a site means one module that implements `Source` in `src/refs/`, plus one line in the registry.
 
-`scripts/fetch-pixabay.sh` reads `PIXABAY_API_KEY`, or `$XDG_CONFIG_HOME/melodias-studio/pixabay.key`, or `pixabay_api_key` in `config.toml`:
+```bash
+melodias refs fetch --source pixabay --count 40
+melodias refs fetch --source pixabay --concept forest --count 40
+melodias refs fetch --source opengameart --concept castle --count 20
+melodias refs fetch --source opengameart --concept battle --count 5 --dry-run
+```
+
+The defaults come from the source: `battle`, `forest`, `castle` and `jrpg`, each with a query. `--concept` and `--query` override them (a custom `--query` needs exactly one `--concept`). `--out` falls back to `IMAGE_REFERENCES`, then `image_references` in `config.toml`, then `~/.local/share/melodias-studio/references`. `make refs ARGS="fetch ..."` wraps the command.
+
+Common options: `--count N` files per concept (40), `--max-files-per-pack N` files taken from one zip (60), `--max-bytes N` for a single image (6000000), `--max-pack-bytes N` for a zip (40000000), `--size N` for images inside a zip (768), `--delay S` between downloads (0.2), `--tag TEXT` to keep only candidates whose tags contain TEXT (repeatable), `--packs` to also import the zip behind an entry, and `--dry-run`.
+
+Packs are off by default. A pack usually mixes scenes with body parts, single props and sheets, so the default keeps one representative image per entry. `--packs` is for when you want the raw assets, and it still deduplicates and caps every pack.
+
+Pixabay reads `PIXABAY_API_KEY`, then `pixabay_api_key` in `config.toml`, then `$XDG_CONFIG_HOME/melodias-studio/pixabay.key`:
 
 ```bash
 install -m 600 /dev/null ~/.config/melodias-studio/pixabay.key
 $EDITOR ~/.config/melodias-studio/pixabay.key
-
-scripts/fetch-pixabay.sh --count 60
-scripts/fetch-pixabay.sh --concept forest --count 40
-scripts/fetch-pixabay.sh --concept dungeon --query "pixel art dungeon background" --count 30
-scripts/fetch-pixabay.sh --dry-run --concept battle --count 5
 ```
 
-The default concepts are `battle` (`pixel art knight`), `forest` (`pixel art forest background`), `castle` (`pixel art castle`) and `jrpg` (`pixel art game`). `--out` falls back to `IMAGE_REFERENCES`, then `image_references` in `config.toml`, then `~/.local/share/melodias-studio/references`. Images are the 640 px Pixabay rendition, at least 400 px wide (`--min-width`), saved as `<concept>/pixabay-<id>.<ext>`.
+Its images are the 640 px rendition and it skips hits narrower than 400 px. `--tag pixel` drops some stock photos but is not a quality filter. Pixabay is a stock site, so expect single objects and UI icons next to scenes, and check for recognizable characters or brands before using a hit.
 
-`--tag TEXT` keeps only hits whose tags contain TEXT (repeatable, any match). Pixabay tags are noisy, so `--tag pixel` drops some stock photos but is not a quality filter; review the folder before relying on it. Pixabay is a stock site, so expect single objects and UI icons next to scenes, and check for recognizable characters or brands before using a hit.
+OpenGameArt searches only CC0 entries (license id 4, 2D art) and checks the license again on every art page. It sends a browser user agent and waits between pages. Each entry offers one representative image, the original attachment when the preview points to one, otherwise the preview itself. Entries that are not CC0 are skipped and reported on stderr. With `--packs`, the zip behind an entry is imported too, normalized to PNG and capped.
 
-`scripts/import-references.sh` imports what you downloaded by hand, including `.zip` packs:
+`melodias refs import` imports what you downloaded by hand, including `.zip` packs:
 
 ```bash
-scripts/import-references.sh --concept castle --license CC0-1.0 \
+melodias refs import --concept castle --license CC0-1.0 \
   --author "Kenney" --source-url https://kenney.nl/assets/castle-kit \
   ~/Downloads/castle-kit.zip
 ```
 
-It requires an explicit `--license`, normalizes to PNG with a 768 px longest side (`--size`), deduplicates by sha256, and names the files `import-<hash>.png`. Re-importing the same pack is harmless. Both scripts also accept `--dry-run`.
+It requires an explicit `--license`, normalizes to PNG with a 768 px longest side (`--size`), deduplicates by sha256, and names the files `<prefix>-<hash>.png` (`--prefix` defaults to `import`). Re-importing the same pack is harmless. It also accepts `--dry-run`.
 
-Every image is appended to `<out>/sources.jsonl`: concept, file, source, license, author, page URL, tags and hash. Keep that manifest with the library, it is the license record. Pixabay results use the Pixabay Content License: free use and adaptation, no attribution, no standalone redistribution, and no logos, brands or recognizable people.
+Every accepted file is appended to `<out>/sources.jsonl`: concept, file, source, license, author, page URL, tags, archive member and hash. Keep that manifest with the library, it is the license record. Both commands need ImageMagick for the images that come from a pack; zip archives are read in process. Pixabay results use the Pixabay Content License: free use and adaptation, no attribution, no standalone redistribution, and no logos, brands or recognizable people.
 
 ## History
 

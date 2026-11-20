@@ -110,7 +110,7 @@ melodias 'https://www.youtube.com/watch?v=...' 'epic 8bit battle theme'
 
 The subfolder whose name matches the vibe (longest match) is used; `IMAGE_REFERENCE_CONCEPT=battle` forces one, and `IMAGE_REFERENCE_COUNT=3` changes how many go per generation. The references are sent as `extra_images` to sd-server, rotate between retry rounds, and are recorded per candidate in `meta.json`. The app never mounts the share or copies the images into the repository.
 
-`scripts/fetch-pixabay.sh` fills the folder from Pixabay and `scripts/import-references.sh` imports your own or CC0 packs; both write `sources.jsonl` with the license of every image. See [configuration.md](configuration.md#building-a-library).
+`melodias refs fetch --source pixabay|opengameart` fills the folder and `melodias refs import` imports your own or CC0 packs; both write `sources.jsonl` with the license of every image. See [configuration.md](configuration.md#building-a-library).
 
 ### History
 

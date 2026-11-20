@@ -54,6 +54,8 @@ pub struct Config {
     pub judge_provider: String,
     pub opencode_api_key: String,
     pub openrouter_api_key: String,
+    /// Optional key for `melodias refs fetch --source pixabay`.
+    pub pixabay_api_key: String,
     /// Model id for the OpenCode Go backend (Gemini native API).
     pub judge_model: String,
     pub judge_omni_model: String,
@@ -174,6 +176,9 @@ impl Config {
                 .unwrap_or_default(),
             openrouter_api_key: env("OPENROUTER_API_KEY")
                 .or(file.openrouter_api_key)
+                .unwrap_or_default(),
+            pixabay_api_key: env("PIXABAY_API_KEY")
+                .or(file.pixabay_api_key)
                 .unwrap_or_default(),
             judge_model: pick(env("JUDGE_MODEL"), file.judge_model, "gemini-4-argon"),
             judge_omni_model: pick(
@@ -306,6 +311,7 @@ struct FileConfig {
     judge_provider: Option<String>,
     opencode_api_key: Option<String>,
     openrouter_api_key: Option<String>,
+    pixabay_api_key: Option<String>,
     judge_model: Option<String>,
     judge_omni_model: Option<String>,
     judge_reasoner_model: Option<String>,
