@@ -46,6 +46,17 @@ make video DIR=output/<slug>
 
 The video is the chosen still with a slow zoom, glowing pixel particles, the audio waveform and edge fades, at `VIDEO_WIDTH` x `VIDEO_HEIGHT` (1920x1080 by default).
 
+### Produced video with Remotion
+
+For the richer composition (bokeh overlays, birds, audio-reactive bars, channel label):
+
+```bash
+cd video && pnpm install && cd ..
+melodias render output/<slug>
+```
+
+That takes about twelve minutes and keeps the previous ffmpeg video as `video-ffmpeg.mp4`. See [video.md](video.md).
+
 ### Regenerate the thumbnail
 
 To replace the chosen image of a finished run, reuse its prompt and seed, and rebuild the video without touching the rest:
@@ -65,6 +76,9 @@ It keeps the old file as `thumbnail-old.png`, appends the new image to `candidat
 | `make run` | Opens the TUI |
 | `make install` / `make uninstall` | Installs or removes `~/.local/bin/melodias` |
 | `make generate URL='...' VIBE='...'` | Runs headless and writes `output/run-<timestamp>.log` |
+| `make image DIR=output/<slug>` | Regenerates the thumbnail of a finished run |
+| `make render DIR=output/<slug>` | Produces the Remotion video |
+| `make video DIR=output/<slug>` | Assembles the fast ffmpeg video |
 | `make log` | Prints the last 40 lines of the newest log |
 | `make check` | `fmt --check`, build, `clippy -D warnings` and tests |
 | `make status` | Service state on the host over SSH |
@@ -81,6 +95,7 @@ output/<slug>/
 ├── meta.json      # candidates, seeds, prompts, selection and source URL
 ├── candidates/    # N image candidates and N audio drafts
 ├── video.mp4      # 1920x1080, image + particles + waveform
+├── video-ffmpeg.mp4  # only when Remotion rendered over the fast version
 └── work/          # source, reference and final take
 ```
 

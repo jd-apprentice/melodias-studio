@@ -1,38 +1,62 @@
 # Video
 
-## Current renderer
+## Two renderers
 
-`media::assemble_video` builds the final video with ffmpeg, deterministically, from three inputs: the chosen `thumbnail.png`, the mastered `audio.mp3` and a radial sprite generated on the fly.
+Both take the chosen `thumbnail.png` and the mastered `audio.mp3` and write `video.mp4`.
 
-- 1920x1080 at 30 fps, H.264 video and AAC audio. The duration matches the track.
-- A slow zoom on the still, so the image is not frozen.
-- Soft moving particles: a radial sprite is scaled, tinted and overlaid several times with `eval=frame`, plus the waveform band and edge fades.
-- `melodias video <dir>` rebuilds it without the GPU. The pipeline calls the same function at the end of every run.
-- `melodias image <dir>` regenerates the thumbnail from the stored prompt and seed, then rebuilds the video. The old image stays as `thumbnail-old.png`.
+### ffmpeg (fast)
 
-## Why a sprite
+`media::assemble_video` builds a 1080p30 video in about two minutes. Slow zoom, soft sprite particles, waveform band and fades. It is deterministic and needs no Node.
 
-`drawbox` positions are evaluated once, which produced static squares. The overlay filter with `eval=frame` evaluates the position on every frame, so the particles actually move. The sprite is a 128x128 radial alpha generated with ffmpeg `geq`, tinted per particle with `colorchannelmixer`. It adds no dependency and renders in about two minutes for a three-minute track.
+```bash
+melodias video output/<slug>
+```
+
+The pipeline uses this renderer at the end of every run.
+
+### Remotion (produced)
+
+The `video/` project renders a richer composition in about twelve minutes:
+
+- Slow zoom on the still.
+- Bokeh and spark overlays from `assets/videos/`, screen blended.
+- A bird layer clipped to the sky.
+- An audio-reactive waveform from `@remotion/media-utils`.
+- A subtle channel label and fades.
+
+```bash
+cd video
+pnpm install
+cd ..
+melodias render output/<slug>
+```
+
+`melodias render` copies the still and track into `video/public/current/`, writes `video/props.json` with the duration, and runs `pnpm exec remotion render` with four workers. The previous `video.mp4` is kept as `video-ffmpeg.mp4`.
+
+The 1080p overlay clips live in `video/public/overlays/` and are committed. The 4K masters in `assets/videos/` are local only and ignored by git.
+
+## Setup notes
+
+- Node 18+ and pnpm are required only for the Remotion renderer.
+- `pnpm-workspace.yaml` allows esbuild's build script, which pnpm blocks by default.
+- The first render downloads a Headless Shell for Remotion.
+- Remotion writes a ~120 MB file for a three minute track, compared to ~42 MB for the ffmpeg version.
+
+## Why a sprite for the ffmpeg path
+
+`drawbox` positions are evaluated once, which produced static squares. The overlay filter with `eval=frame` evaluates the position on every frame, so the particles move. The sprite is a 128x128 radial alpha generated with ffmpeg `geq`, tinted per particle with `colorchannelmixer`.
 
 ## Options for richer effects
 
 | Option | What it gives | Cost |
 | --- | --- | --- |
-| **Remotion** (React/TS) | Animated titles, transitions, branded intros and outros, audio-reactive scenes, any CSS/SVG effect | Node project, slower render because every frame is a browser frame |
-| **Motion Canvas / Revideo** (TS) | Canvas animation with a scene graph; good for particles and typography | Node project, another rendering pipeline |
-| **Kdenlive, Shotcut, DaVinci** | Full manual editing for one-offs; best creative control | Manual, not reproducible |
-| **Blender, MLT, VapourSynth** | Scripted compositing, 3D scenes, advanced keying | Heavy, complex setup |
-
-## Recommendation
-
-Keep ffmpeg for the automated pipeline: it is fast, deterministic and enough for a still plus a waveform and particles.
-
-If we want a produced look (channel branding, animated titles, scene transitions, more elaborate particles), **Remotion** is the best next step. It turns the video into a React composition that can read the run's `meta.json` and render the same way every time.
-
-Do not add a dependency just to draw dots. The current sprite overlay covers that case.
+| **Remotion** (implemented) | Animated titles, transitions, branded intros and outros, audio-reactive scenes, any CSS/SVG effect | Node project, ~12 min render |
+| **Motion Canvas / Revideo** (TS) | Canvas animation with a scene graph | Another rendering pipeline |
+| **Kdenlive, Shotcut, DaVinci** | Full manual editing for one-offs | Manual, not reproducible |
+| **Blender, MLT, VapourSynth** | Scripted compositing, 3D scenes | Heavy, complex setup |
 
 ## Open items
 
-- Title and channel overlays are not implemented.
+- The pipeline still calls the ffmpeg renderer; wiring Remotion as the default stage is pending a decision on the ~50 minute total budget.
 - The assembly agent that picks a preset from the vibe is still a design item.
-- The particle palette is fixed (cyan, amber, white); it can move to `config.toml` when the video gets more settings.
+- Title and channel overlays are fixed; they can move to `config.toml` when the video gets more settings.

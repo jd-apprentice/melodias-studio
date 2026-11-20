@@ -15,7 +15,7 @@ use crossterm::style::Stylize;
 
 use pipeline::{Msg, Selection, State};
 
-const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias image <dir>      (regenerate the thumbnail of a run)\n       melodias video <dir>      (assemble a finished run)";
+const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias image <dir>      (regenerate the thumbnail of a run)\n       melodias render <dir>     (produced video with Remotion)\n       melodias video <dir>      (fast video with ffmpeg)";
 
 fn main() -> io::Result<()> {
     let cfg = config::Config::from_env();
@@ -29,6 +29,9 @@ fn main() -> io::Result<()> {
     }
     if args.first().is_some_and(|arg| arg == "image") {
         return run_image(cfg, &args);
+    }
+    if args.first().is_some_and(|arg| arg == "render") {
+        return run_render(cfg, &args);
     }
     if args.first().is_some_and(|arg| arg == "video") {
         return run_video(cfg, &args);
@@ -133,6 +136,71 @@ fn run_headless(cfg: config::Config, args: &[String]) -> io::Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+/// Renders the produced video with the Remotion project: overlay clips, an
+/// audio-reactive waveform and a slow zoom. Slower than ffmpeg.
+fn run_render(cfg: config::Config, args: &[String]) -> io::Result<()> {
+    let [_, target] = args else {
+        eprintln!("usage: melodias render <output-dir>");
+        std::process::exit(2);
+    };
+    let requested = PathBuf::from(target);
+    let dir = if requested.is_dir() {
+        requested
+    } else {
+        cfg.out_dir.join(target)
+    };
+    let dir = std::fs::canonicalize(&dir)?;
+    let image = dir.join("thumbnail.png");
+    let audio = dir.join("audio.mp3");
+    for path in [&image, &audio] {
+        if !path.is_file() {
+            eprintln!("missing {}", path.display());
+            std::process::exit(2);
+        }
+    }
+    let project = std::env::current_dir()?.join("video");
+    if !project.join("node_modules").is_dir() {
+        eprintln!("the Remotion project is not installed; run: cd video && pnpm install");
+        std::process::exit(2);
+    }
+    let current = project.join("public").join("current");
+    std::fs::create_dir_all(&current)?;
+    std::fs::copy(&image, current.join("thumbnail.png"))?;
+    std::fs::copy(&audio, current.join("audio.mp3"))?;
+    let duration =
+        media::duration_secs(&audio).map_err(|error| io::Error::other(format!("{error:#}")))?;
+    let props = project.join("props.json");
+    std::fs::write(
+        &props,
+        serde_json::to_vec(&serde_json::json!({
+            "durationSec": duration,
+            "channel": "melodias8bit",
+        }))?,
+    )?;
+    let output = dir.join("video.mp4");
+    if output.is_file() {
+        let _ = std::fs::copy(&output, dir.join("video-ffmpeg.mp4"));
+    }
+    let status = std::process::Command::new("pnpm")
+        .current_dir(&project)
+        .args([
+            "exec",
+            "remotion",
+            "render",
+            "src/index.ts",
+            "MelodiasVideo",
+        ])
+        .arg(&output)
+        .arg(format!("--props={}", props.display()))
+        .arg("--concurrency=4")
+        .status()?;
+    if !status.success() {
+        return Err(io::Error::other("remotion render failed"));
+    }
+    println!("video: {}", output.display());
     Ok(())
 }
 
