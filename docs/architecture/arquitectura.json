@@ -10,7 +10,7 @@
       "url": "https://github.com/jd-apprentice/melodias-studio",
       "provider": "github",
       "link_mode": "web",
-      "revision": "6fc6ef52e021c36973c874dfff15561dc069a971"
+      "revision": "b781c7dddce09d02a053770afc29381a1c5f2cc5"
     },
     "legend": {
       "entries": {
@@ -371,8 +371,8 @@
         "candidates/ keeps N images and N audio drafts",
         "3 images at 20 steps and 3 drafts at 60 s by default",
         "The review pauses the run for a manual pick",
-        "video.mp4 adds a slow zoom, moving particles and the waveform",
-        "melodias image/video rebuild pieces without the GPU",
+        "video.mp4 with ffmpeg or Remotion (overlays, waveform, branding)",
+        "melodias image/render/video rebuild pieces without the GPU",
         "meta.json stores candidates, seeds and the selected pair"
       ]
     },
