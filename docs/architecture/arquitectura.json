@@ -1,0 +1,389 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "melodias-studio · from YouTube to thumbnail and song",
+    "locale": "en",
+    "output": "docs/architecture/arquitectura.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/jd-apprentice/melodias-studio",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "79bf5115d65c04a04b71c42894075fdae078c2d5"
+    },
+    "legend": {
+      "entries": {
+        "database": {
+          "label": "Storage"
+        }
+      }
+    }
+  },
+  "components": [
+    {
+      "id": "operador",
+      "type": "external",
+      "label": "Operator",
+      "sublabel": "URL + vibe",
+      "pos": [
+        30,
+        282
+      ],
+      "size": [
+        120,
+        60
+      ],
+      "sources": [
+        {
+          "path": "src/app.rs",
+          "line": 22,
+          "end_line": 35,
+          "label": "input fields"
+        },
+        {
+          "path": "src/app.rs",
+          "line": 55,
+          "end_line": 72,
+          "label": "start needs URL and vibe"
+        }
+      ]
+    },
+    {
+      "id": "tui",
+      "type": "frontend",
+      "label": "ratatui TUI",
+      "sublabel": "stages and log",
+      "pos": [
+        240,
+        282
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "src/app.rs",
+          "line": 164,
+          "end_line": 209,
+          "label": "key loop"
+        },
+        {
+          "path": "src/app.rs",
+          "line": 211,
+          "end_line": 530,
+          "label": "screen layout"
+        }
+      ]
+    },
+    {
+      "id": "pipeline",
+      "type": "backend",
+      "label": "pipeline.rs",
+      "sublabel": "9 sequential stages",
+      "pos": [
+        470,
+        270
+      ],
+      "size": [
+        160,
+        84
+      ],
+      "sources": [
+        {
+          "path": "src/pipeline.rs",
+          "line": 10,
+          "end_line": 20,
+          "label": "stage order"
+        },
+        {
+          "path": "src/pipeline.rs",
+          "line": 82,
+          "end_line": 239,
+          "label": "run()"
+        }
+      ]
+    },
+    {
+      "id": "media",
+      "type": "backend",
+      "label": "media.rs",
+      "sublabel": "yt-dlp · ffmpeg · scp",
+      "pos": [
+        250,
+        600
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "sources": [
+        {
+          "path": "src/media.rs",
+          "line": 73,
+          "end_line": 92,
+          "label": "WAV download"
+        },
+        {
+          "path": "src/media.rs",
+          "line": 96,
+          "end_line": 169,
+          "label": "RMS selection"
+        },
+        {
+          "path": "src/media.rs",
+          "line": 206,
+          "end_line": 237,
+          "label": "master and loudnorm"
+        }
+      ]
+    },
+    {
+      "id": "youtube",
+      "type": "external",
+      "label": "YouTube",
+      "sublabel": "source song",
+      "pos": [
+        500,
+        600
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "sources": [
+        {
+          "path": "src/media.rs",
+          "line": 39,
+          "end_line": 58,
+          "label": "yt-dlp invocation"
+        }
+      ]
+    },
+    {
+      "id": "llm",
+      "type": "backend",
+      "label": "llama-server :8080",
+      "sublabel": "Qwen3-4B · 3.4 GB",
+      "pos": [
+        760,
+        130
+      ],
+      "size": [
+        180,
+        64
+      ],
+      "sources": [
+        {
+          "path": "src/clients.rs",
+          "line": 86,
+          "end_line": 123,
+          "label": "image prompt"
+        },
+        {
+          "path": "deploy/serve-llm.sh",
+          "line": 16,
+          "end_line": 19,
+          "label": "model and port"
+        }
+      ]
+    },
+    {
+      "id": "sd",
+      "type": "backend",
+      "label": "sd-server :1234",
+      "sublabel": "MOSS-Image · 11.4 GB",
+      "pos": [
+        760,
+        280
+      ],
+      "size": [
+        180,
+        64
+      ],
+      "sources": [
+        {
+          "path": "src/clients.rs",
+          "line": 161,
+          "end_line": 182,
+          "label": "image generation"
+        },
+        {
+          "path": "deploy/serve-sd.sh",
+          "line": 16,
+          "end_line": 23,
+          "label": "model load"
+        }
+      ]
+    },
+    {
+      "id": "audio",
+      "type": "backend",
+      "label": "audiocpp_server :8090",
+      "sublabel": "ACE-Step · 10 GB",
+      "pos": [
+        760,
+        430
+      ],
+      "size": [
+        180,
+        64
+      ],
+      "sources": [
+        {
+          "path": "src/clients.rs",
+          "line": 125,
+          "end_line": 159,
+          "label": "take with reference"
+        },
+        {
+          "path": "deploy/serve-audio.sh",
+          "line": 16,
+          "end_line": 18,
+          "label": "startup"
+        },
+        {
+          "path": "deploy/audio-server.json",
+          "line": 1,
+          "end_line": 18,
+          "label": "ace-step model"
+        }
+      ]
+    },
+    {
+      "id": "salida",
+      "type": "database",
+      "label": "output/<slug>",
+      "sublabel": "audio.mp3 · PNG · meta.json",
+      "pos": [
+        40,
+        600
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "sources": [
+        {
+          "path": "src/pipeline.rs",
+          "line": 200,
+          "end_line": 231,
+          "label": "copy and metadata"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "VM 192.168.88.38 · Tesla P40 24 GB",
+      "wraps": [
+        "llm",
+        "sd",
+        "audio"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "operador-tui",
+      "from": "operador",
+      "to": "tui",
+      "label": "URL + vibe",
+      "variant": "emphasis"
+    },
+    {
+      "id": "tui-pipeline",
+      "from": "tui",
+      "to": "pipeline",
+      "label": "per-stage progress"
+    },
+    {
+      "id": "pipeline-llm",
+      "from": "pipeline",
+      "to": "llm",
+      "label": "image prompt"
+    },
+    {
+      "id": "pipeline-sd",
+      "from": "pipeline",
+      "to": "sd",
+      "label": "PNG 1280x720",
+      "variant": "emphasis"
+    },
+    {
+      "id": "pipeline-audio",
+      "from": "pipeline",
+      "to": "audio",
+      "label": "210 s take"
+    },
+    {
+      "id": "pipeline-media",
+      "from": "pipeline",
+      "to": "media",
+      "label": "download · master"
+    },
+    {
+      "id": "media-youtube",
+      "from": "media",
+      "to": "youtube",
+      "label": "yt-dlp WAV"
+    },
+    {
+      "id": "media-audio",
+      "from": "media",
+      "to": "audio",
+      "label": "scp reference"
+    },
+    {
+      "id": "pipeline-salida",
+      "from": "pipeline",
+      "to": "salida",
+      "label": "audio.mp3 + meta"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "HTTP contracts",
+      "items": [
+        "llama-server /v1/chat/completions writes the image prompt",
+        "sd-server /v1/images/generations returns b64_json at 1280x720",
+        "audiocpp /v1/tasks/run generates with reference_audio",
+        "Each stage waits for its health check, up to 180 s"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "VRAM order",
+      "items": [
+        "One 24 GB P40 serves all three services",
+        "llama-server (3.4 GB) and sd-server (11.4 GB) coexist",
+        "The LLM and sd-server stop before ACE-Step loads",
+        "mem_saver keeps ACE-Step near 14.7 GB between requests"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Master and output",
+      "items": [
+        "audio.mp3, 320 kbps, -15 LUFS, 1.5 s fade-in and 3 s fade-out",
+        "Every track is instrumental; vocals are in the negative prompt",
+        "The PNG is validated by reading its header",
+        "meta.json stores the seed, prompt and parameters",
+        "work/ keeps the source, reference and take"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Source and reference",
+      "items": [
+        "yt-dlp extracts a 48 kHz stereo WAV",
+        "The reference is the minute with the highest RMS energy",
+        "scp leaves it in /models/ref before the audio stage",
+        "The reference conditions timbre, not the melody"
+      ]
+    }
+  ]
+}

@@ -1,28 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=env.sh
+. "$SCRIPT_DIR/env.sh"
+
 NAME=llm
-BIN=/home/ubuntu/llama.cpp/build/bin/llama-server
-MODEL=/models/qwen3-4b-instruct/Qwen3-4B-Instruct-2507-Q4_K_M.gguf
-PIDFILE=/run/melodias-llm.pid
-LOG=/var/log/melodias-llm.log
+BIN=$LLM_BIN
+MODEL=$LLM_MODEL
+PORT=$LLM_PORT
+PIDFILE="$MELODIAS_RUN_DIR/melodias-$NAME.pid"
+LOG="$MELODIAS_LOG_DIR/melodias-$NAME.log"
 
 case "${1:-}" in
   start)
     if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-      echo "$NAME ya corre (pid $(cat "$PIDFILE"))"
+      echo "$NAME already running (pid $(cat "$PIDFILE"))"
       exit 0
     fi
+    # shellcheck disable=SC2086
     setsid "$BIN" -m "$MODEL" \
-      --host 0.0.0.0 --port 8080 \
-      -c 8192 -ngl 99 -fa on -ctk q8_0 -ctv q8_0 --jinja \
+      --host "$LLM_LISTEN_IP" --port "$PORT" \
+      $LLM_ARGS \
       >"$LOG" 2>&1 </dev/null &
     echo $! >"$PIDFILE"
-    echo "$NAME arrancado (pid $(cat "$PIDFILE"))"
+    echo "$NAME started (pid $(cat "$PIDFILE"))"
     ;;
   stop)
     if [ ! -f "$PIDFILE" ]; then
-      echo "$NAME no corre"
+      echo "$NAME not running"
       exit 0
     fi
     pid=$(cat "$PIDFILE")
@@ -32,18 +38,18 @@ case "${1:-}" in
       sleep 0.5
     done
     rm -f "$PIDFILE"
-    echo "$NAME detenido"
+    echo "$NAME stopped"
     ;;
   status)
     if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-      echo "$NAME corriendo (pid $(cat "$PIDFILE"))"
+      echo "$NAME running (pid $(cat "$PIDFILE"))"
     else
-      echo "$NAME detenido"
+      echo "$NAME not running"
       exit 1
     fi
     ;;
   *)
-    echo "uso: $0 start|stop|status"
+    echo "usage: $0 start|stop|status"
     exit 2
     ;;
 esac

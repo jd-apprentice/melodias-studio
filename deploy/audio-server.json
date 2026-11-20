@@ -4,6 +4,9 @@
   "backend": "cuda",
   "device": 0,
   "lazy_load": true,
+  "default_session_options": {
+    "ace_step.mem_saver": true
+  },
   "models": [
     {
       "id": "ace-step",

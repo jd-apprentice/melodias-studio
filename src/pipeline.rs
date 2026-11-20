@@ -8,18 +8,18 @@ use anyhow::{Context, Result};
 use crate::{clients, config::Config, media};
 
 pub const STAGES: [&str; 9] = [
-    "Prompt imagen",
-    "Preparar imagen",
-    "Miniatura",
-    "Descarga",
-    "Referencia",
-    "Subida",
+    "Image prompt",
+    "Prepare image",
+    "Thumbnail",
+    "Download",
+    "Reference",
+    "Upload",
     "Audio",
-    "Loop + master",
-    "Guardado",
+    "Master",
+    "Save",
 ];
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
     Pending,
     Running,
@@ -66,13 +66,26 @@ fn log(tx: &Sender<Msg>, text: impl Into<String>) {
     let _ = tx.send(Msg::Log(text.into()));
 }
 
+/// One line per stage transition, shared by the TUI log and the headless view.
+pub fn stage_label(idx: usize, state: State) -> Option<String> {
+    let name = STAGES.get(idx)?;
+    let number = idx + 1;
+    let total = STAGES.len();
+    match state {
+        State::Pending => None,
+        State::Running => Some(format!("▶ {number}/{total} {name}")),
+        State::Ok => Some(format!("✔ {number}/{total} {name}")),
+        State::Failed => Some(format!("✖ {number}/{total} {name}")),
+    }
+}
+
 fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome> {
     let slug = slugify(vibe);
     let work = cfg.out_dir.join(&slug).join("work");
-    std::fs::create_dir_all(&work).context("creando el directorio de trabajo")?;
+    std::fs::create_dir_all(&work).context("creating the work directory")?;
     let seed = random_seed();
 
-    log(tx, format!("trabajando en {}", work.display()));
+    log(tx, format!("working in {}", work.display()));
     log(tx, format!("seed {seed}"));
     media::preflight()?;
 
@@ -82,7 +95,7 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
         clients::wait_llm(cfg, Duration::from_secs(180))?;
         clients::ask_image_prompt(cfg, vibe)
     })?;
-    log(tx, format!("prompt imagen: {image_prompt}"));
+    log(tx, format!("image prompt: {image_prompt}"));
 
     // Free the LLM, then bring up the image server.
     step(tx, 1, || {
@@ -91,53 +104,94 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
         clients::wait_sd(cfg, Duration::from_secs(180))
     })?;
 
+    let image_started = std::time::Instant::now();
     let image_bytes = step(tx, 2, || clients::generate_image(cfg, &image_prompt))?;
     let image = cfg.out_dir.join(&slug).join("thumbnail.png");
-    std::fs::write(&image, &image_bytes).context("guardando la miniatura")?;
-    log(tx, format!("miniatura: {}", image.display()));
-
-    let source = step(tx, 3, || media::download_audio(url, &work))?;
-    log(tx, format!("fuente: {}", source.display()));
-
-    let reference = step(tx, 4, || media::pick_reference(&source, &work))?;
+    std::fs::write(&image, &image_bytes).context("saving the thumbnail")?;
+    let (width, height) = media::png_size(&image)?;
     log(
         tx,
         format!(
-            "referencia: {} ({:.0} s)",
+            "thumbnail: {} ({width}x{height}, {:.1} MB, {:.1} min)",
+            image.display(),
+            image_bytes.len() as f64 / 1e6,
+            image_started.elapsed().as_secs_f64() / 60.0
+        ),
+    );
+    if (width, height) != (cfg.width, cfg.height) {
+        log(
+            tx,
+            format!(
+                "warning: the server returned {width}x{height} instead of {}x{}",
+                cfg.width, cfg.height
+            ),
+        );
+    }
+
+    let source = step(tx, 3, || media::download_audio(url, &work))?;
+    log(tx, format!("source: {}", source.display()));
+
+    let reference = step(tx, 4, || media::pick_reference(cfg, &source, &work))?;
+    log(
+        tx,
+        format!(
+            "reference: {} ({:.0} s)",
             reference.display(),
             media::duration_secs(&reference)?
         ),
     );
 
     let remote = step(tx, 5, || media::push_reference(cfg, &reference, &slug))?;
-    log(tx, format!("referencia remota: {remote}"));
+    log(tx, format!("remote reference: {remote}"));
 
-    let audio_bytes = step(tx, 6, || {
+    // The vibe is the only audio prompt. The word "instrumental" plus the
+    // negative prompt keep voices out of every delivery.
+    let audio_prompt = compose_audio_prompt(vibe, &cfg.audio_style);
+    log(tx, format!("prompt audio: {audio_prompt}"));
+
+    let audio_result = step(tx, 6, || {
+        // The timbre reference pushes ACE-Step past what fits next to the 4B,
+        // so both the image model and the LLM go away before the audio stage.
         media::ssh_run(cfg, &cfg.sd_stop_cmd)?;
+        media::ssh_run(cfg, &cfg.llm_stop_cmd)?;
         media::ssh_run(cfg, &cfg.audio_start_cmd)?;
         clients::wait_audio(cfg, Duration::from_secs(180))?;
-        clients::generate_audio(cfg, vibe, &remote, seed)
-    })?;
+        clients::generate_audio(cfg, &audio_prompt, &remote, seed)
+    });
+    // Release the P40 even when the take failed, so a later image stage can load.
+    let stopped = media::ssh_run(cfg, &cfg.audio_stop_cmd);
+    if let Err(err) = &stopped {
+        log(
+            tx,
+            format!("warning: the audio server is still up: {err:#}"),
+        );
+    }
+    let audio_bytes = audio_result?;
     let take = work.join("take.wav");
-    std::fs::write(&take, &audio_bytes).context("guardando la toma")?;
+    std::fs::write(&take, &audio_bytes).context("saving the take")?;
     log(
         tx,
         format!(
-            "toma: {} ({:.1} MB)",
+            "take: {} ({:.1} MB)",
             take.display(),
             audio_bytes.len() as f64 / 1e6
         ),
     );
 
-    let looped = step(tx, 7, || media::make_loop(&take, &work))?;
-    let mp3 = media::encode_mp3(&looped, &work, 320)?;
+    let mastered = step(tx, 7, || media::master_take(cfg, &take, &work))?;
+    let mp3 = media::encode_mp3(&mastered, &work, 320)?;
     log(
         tx,
         format!(
-            "loop: {} ({:.0} s)",
+            "master: {} ({:.0} s)",
             mp3.display(),
             media::duration_secs(&mp3)?
         ),
+    );
+
+    let master = format!(
+        "fade-in {} s, fade-out {} s, {} LUFS",
+        cfg.fade_in_sec, cfg.fade_out_sec, cfg.loudness_lufs
     );
 
     step(tx, 8, || {
@@ -151,10 +205,13 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
             "seed": seed,
             "audio": {
                 "model": cfg.audio_model,
+                "prompt": audio_prompt,
+                "negative_prompt": cfg.audio_negative_prompt,
                 "steps": cfg.steps,
                 "guidance": cfg.guidance,
                 "sampler": cfg.sampler,
                 "duration_sec": cfg.duration_sec,
+                "master": master,
                 "reference": remote,
                 "file": final_audio,
             },
@@ -203,8 +260,29 @@ pub fn slugify(text: &str) -> String {
     }
     let trimmed = out.trim_matches('-').to_string();
     if trimmed.is_empty() {
-        "toma".to_string()
+        "take".to_string()
     } else {
         trimmed
+    }
+}
+
+/// The channel medium is a rule: the vibe adds mood, the style is always there.
+pub fn compose_audio_prompt(vibe: &str, style: &str) -> String {
+    format!(
+        "{vibe}, {style}, instrumental, soft intro that builds gradually, full arrangement in \
+         the middle, gentle outro that resolves and fades out"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_medium_is_always_in_the_audio_prompt() {
+        let prompt = compose_audio_prompt("epic orchestral", "8-bit chiptune");
+        assert!(prompt.starts_with("epic orchestral, 8-bit chiptune"));
+        assert!(prompt.contains("instrumental"));
+        assert!(prompt.contains("fades out"));
     }
 }

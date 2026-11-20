@@ -6,44 +6,55 @@ use serde_json::json;
 
 use crate::config::Config;
 
-fn client() -> Result<reqwest::blocking::Client> {
+fn short_client() -> Result<reqwest::blocking::Client> {
     reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(1800))
+        .timeout(Duration::from_secs(10))
+        .connect_timeout(Duration::from_secs(5))
         .build()
-        .context("creando cliente HTTP")
+        .context("creating the HTTP client")
+}
+
+/// One generation on the P40 can take half an hour, so generation requests get
+/// their own budget instead of the short one used by the health probes.
+fn long_client() -> Result<reqwest::blocking::Client> {
+    reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(3600))
+        .connect_timeout(Duration::from_secs(10))
+        .build()
+        .context("creating the HTTP client")
 }
 
 pub fn check_audio(cfg: &Config) -> Result<()> {
     let url = format!("{}/health", cfg.audio_url.trim_end_matches('/'));
-    let body = client()?
+    let body = short_client()?
         .get(&url)
         .send()
         .and_then(|r| r.error_for_status())
-        .with_context(|| format!("audio.cpp no responde en {url}"))?
+        .with_context(|| format!("audio.cpp does not answer at {url}"))?
         .text()?;
     if !body.contains("\"ok\"") {
-        bail!("audio.cpp respondió algo inesperado: {body}");
+        bail!("audio.cpp returned something unexpected: {body}");
     }
     Ok(())
 }
 
 pub fn check_llm(cfg: &Config) -> Result<()> {
     let url = format!("{}/health", cfg.llm_url.trim_end_matches('/'));
-    client()?
+    short_client()?
         .get(&url)
         .send()
         .and_then(|r| r.error_for_status())
-        .with_context(|| format!("llama-server no responde en {url}"))?;
+        .with_context(|| format!("llama-server does not answer at {url}"))?;
     Ok(())
 }
 
 pub fn check_sd(cfg: &Config) -> Result<()> {
     let url = format!("{}/v1/models", cfg.sd_url.trim_end_matches('/'));
-    client()?
+    short_client()?
         .get(&url)
         .send()
         .and_then(|r| r.error_for_status())
-        .with_context(|| format!("sd-server no responde en {url}"))?;
+        .with_context(|| format!("sd-server does not answer at {url}"))?;
     Ok(())
 }
 
@@ -66,7 +77,7 @@ fn wait(name: &str, timeout: Duration, probe: impl Fn() -> Result<()>) -> Result
             return Ok(());
         }
         if start.elapsed() > timeout {
-            bail!("{name} no respondió en {} s", timeout.as_secs());
+            bail!("{name} did not answer within {} s", timeout.as_secs());
         }
         std::thread::sleep(Duration::from_secs(3));
     }
@@ -74,13 +85,15 @@ fn wait(name: &str, timeout: Duration, probe: impl Fn() -> Result<()>) -> Result
 
 pub fn ask_image_prompt(cfg: &Config, vibe: &str) -> Result<String> {
     let url = format!("{}/v1/chat/completions", cfg.llm_url.trim_end_matches('/'));
-    let system = "You write prompts for a text-to-image model. Reply with ONE line of at \
-most 60 words, in English, no quotes, no explanation. Describe a 16:9 YouTube thumbnail \
-in 8-bit pixel art style: one anime character in a scene, detailed pixelated background, \
-nostalgic cozy mood. Never mention audio, BPM, tempo, music, songs, text or watermarks.";
-    let user = format!(
-        "Thumbnail concept, keep the scene but adapt the palette and props to it: {vibe}"
+    let system = format!(
+        "You write prompts for a text-to-image model. Reply with ONE line of at most 60 \
+words, in English, no quotes, no explanation. Describe a 16:9 YouTube thumbnail in {} \
+style: one anime character in a scene, detailed background, nostalgic cozy mood. Never \
+mention audio, BPM, tempo, music, songs, text or watermarks.",
+        cfg.image_style
     );
+    let user =
+        format!("Thumbnail concept, keep the scene but adapt the palette and props to it: {vibe}");
     let body = json!({
         "model": cfg.llm_model,
         "temperature": 0.5,
@@ -90,16 +103,16 @@ nostalgic cozy mood. Never mention audio, BPM, tempo, music, songs, text or wate
             {"role": "user", "content": user}
         ]
     });
-    let resp: serde_json::Value = client()?
+    let resp: serde_json::Value = long_client()?
         .post(&url)
         .json(&body)
         .send()
         .and_then(|r| r.error_for_status())
-        .with_context(|| format!("llama-server falló en {url}"))?
+        .with_context(|| format!("llama-server failed at {url}"))?
         .json()?;
     let raw = resp["choices"][0]["message"]["content"]
         .as_str()
-        .context("respuesta del LLM sin content")?;
+        .context("LLM response without content")?;
     let text = raw
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -107,39 +120,45 @@ nostalgic cozy mood. Never mention audio, BPM, tempo, music, songs, text or wate
         .trim_matches('"')
         .to_string();
     if text.is_empty() {
-        bail!("el LLM devolvió un prompt vacío");
+        bail!("the LLM returned an empty prompt");
     }
     Ok(text)
 }
 
 pub fn generate_audio(cfg: &Config, prompt: &str, reference: &str, seed: u32) -> Result<Vec<u8>> {
     let url = format!("{}/v1/tasks/run", cfg.audio_url.trim_end_matches('/'));
+    // The server only forwards the nested `options` object to the ACE-Step
+    // parser. duration_sec, reference_audio and sampler_mode are ignored when
+    // they sit at the top level of `request`.
     let body = json!({
         "model": cfg.audio_model,
         "request": {
             "route": "text2music",
             "text": prompt,
-            "duration_sec": cfg.duration_sec,
             "seed": seed,
-            "reference_audio": reference,
             "num_inference_steps": cfg.steps,
             "guidance_scale": cfg.guidance,
-            "sampler_mode": cfg.sampler
+            "options": {
+                "reference_audio": reference,
+                "duration_sec": cfg.duration_sec,
+                "sampler_mode": cfg.sampler,
+                "negative_prompt": cfg.audio_negative_prompt
+            }
         }
     });
-    let resp: serde_json::Value = client()?
+    let resp: serde_json::Value = long_client()?
         .post(&url)
         .json(&body)
         .send()
         .and_then(|r| r.error_for_status())
-        .with_context(|| format!("audio.cpp falló en {url}"))?
+        .with_context(|| format!("audio.cpp failed at {url}"))?
         .json()?;
     let b64 = resp["audio"]
         .as_str()
-        .context("respuesta sin campo audio")?;
+        .context("response without an audio field")?;
     base64::engine::general_purpose::STANDARD
         .decode(b64)
-        .context("audio base64 inválido")
+        .context("invalid base64 audio")
 }
 
 pub fn generate_image(cfg: &Config, prompt: &str) -> Result<Vec<u8>> {
@@ -150,17 +169,17 @@ pub fn generate_image(cfg: &Config, prompt: &str) -> Result<Vec<u8>> {
         "size": format!("{}x{}", cfg.width, cfg.height),
         "output_format": "png"
     });
-    let resp: serde_json::Value = client()?
+    let resp: serde_json::Value = long_client()?
         .post(&url)
         .json(&body)
         .send()
         .and_then(|r| r.error_for_status())
-        .with_context(|| format!("sd-server falló en {url}"))?
+        .with_context(|| format!("sd-server failed at {url}"))?
         .json()?;
     let b64 = resp["data"][0]["b64_json"]
         .as_str()
-        .context("respuesta sin data[0].b64_json")?;
+        .context("response without data[0].b64_json")?;
     base64::engine::general_purpose::STANDARD
         .decode(b64)
-        .context("imagen base64 inválida")
+        .context("invalid base64 image")
 }

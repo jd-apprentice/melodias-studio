@@ -1,25 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=env.sh
+. "$SCRIPT_DIR/env.sh"
+
 NAME=audio
-BIN=/root/audio.cpp/build/linux-cuda-release/bin/audiocpp_server
-CONFIG=/home/ubuntu/audio-server.json
-PIDFILE=/run/melodias-audio.pid
-LOG=/var/log/melodias-audio.log
+BIN=$AUDIO_BIN
+CONFIG=$AUDIO_CONFIG
+PIDFILE="$MELODIAS_RUN_DIR/melodias-$NAME.pid"
+LOG="$MELODIAS_LOG_DIR/melodias-$NAME.log"
 
 case "${1:-}" in
   start)
     if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-      echo "$NAME ya corre (pid $(cat "$PIDFILE"))"
+      echo "$NAME already running (pid $(cat "$PIDFILE"))"
       exit 0
     fi
     setsid "$BIN" --config "$CONFIG" >"$LOG" 2>&1 </dev/null &
     echo $! >"$PIDFILE"
-    echo "$NAME arrancado (pid $(cat "$PIDFILE"))"
+    echo "$NAME started (pid $(cat "$PIDFILE"))"
     ;;
   stop)
     if [ ! -f "$PIDFILE" ]; then
-      echo "$NAME no corre"
+      echo "$NAME not running"
       exit 0
     fi
     pid=$(cat "$PIDFILE")
@@ -29,18 +33,18 @@ case "${1:-}" in
       sleep 0.5
     done
     rm -f "$PIDFILE"
-    echo "$NAME detenido"
+    echo "$NAME stopped"
     ;;
   status)
     if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-      echo "$NAME corriendo (pid $(cat "$PIDFILE"))"
+      echo "$NAME running (pid $(cat "$PIDFILE"))"
     else
-      echo "$NAME detenido"
+      echo "$NAME not running"
       exit 1
     fi
     ;;
   *)
-    echo "uso: $0 start|stop|status"
+    echo "usage: $0 start|stop|status"
     exit 2
     ;;
 esac
