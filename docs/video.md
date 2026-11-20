@@ -23,7 +23,7 @@ The `video/` project renders a richer composition in about twelve minutes:
 - Slow zoom on the still.
 - Bokeh and spark overlays from `assets/videos/`, screen blended and selectable with `VIDEO_PARTICLES` (`both` by default, `bokeh` or `sparks`).
 - A bird layer clipped to the sky.
-- An audio-reactive waveform from `@remotion/media-utils`.
+- The same `showwaves` waveform line as the fast renderer, rendered by ffmpeg as a screen-blended overlay.
 - A subtle channel label and fades.
 
 The pipeline uses this renderer at the end of every run. If `video/node_modules` or `pnpm` is missing, the run fails in the preflight, before the GPU work, with the command to fix it. There is no silent fallback.
@@ -35,7 +35,7 @@ cd ..
 melodias render output/<slug>
 ```
 
-`melodias render` copies the still and track into `video/public/current/`, writes `video/props.json` with the duration, channel and particles, and runs `pnpm exec remotion render` with four workers. The previous `video.mp4` is kept as `video-ffmpeg.mp4`.
+`melodias render` copies the still and track into `video/public/current/`, writes `video/props.json` with the duration, channel and particles, renders the waveform overlay from the audio, and runs `pnpm exec remotion render` with four workers. The previous `video.mp4` is kept as `video-ffmpeg.mp4`.
 
 The 1080p overlay clips live in `video/public/overlays/` and are committed. The 4K masters in `assets/videos/` are local only and ignored by git.
 

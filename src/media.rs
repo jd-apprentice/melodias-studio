@@ -538,3 +538,41 @@ pub fn duration_secs(path: &Path) -> Result<f64> {
         .parse::<f64>()
         .with_context(|| format!("invalid duration: {text:?}"))
 }
+
+/// Renders the audio waveform used by the Remotion composition. It is the same
+/// ffmpeg `showwaves` line as the fast renderer; the black background
+/// disappears with `mix-blend-mode: screen` in the composition.
+pub fn waveform_overlay(audio: &Path, output: &Path, width: u32, height: u32) -> Result<()> {
+    let total = duration_secs(audio)?;
+    let width = width.max(320) & !1;
+    let height = height.max(240) & !1;
+    let wave = (height / 6).max(90);
+    let top = height - wave - 30;
+    let graph = format!(
+        "showwaves=s={width}x{wave}:mode=cline:rate=30:colors=0x56d4dd,\
+         pad={width}:{height}:0:{top}:color=black,format=yuv420p"
+    );
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(["-v", "error", "-y", "-i"])
+        .arg(audio)
+        .args([
+            "-filter_complex",
+            &graph,
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "21",
+            "-t",
+        ])
+        .arg(format!("{total:.3}"))
+        .arg(output);
+    attach_output(&mut cmd);
+    let status = cmd.status().context("rendering the waveform overlay")?;
+    if !status.success() {
+        bail!("ffmpeg failed while rendering the waveform overlay");
+    }
+    Ok(())
+}

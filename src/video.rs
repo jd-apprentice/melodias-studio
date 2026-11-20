@@ -83,6 +83,13 @@ pub fn render_remotion(
     std::fs::create_dir_all(&current)?;
     std::fs::copy(image, current.join("thumbnail.png")).context("copying the thumbnail")?;
     std::fs::copy(audio, current.join("audio.mp3")).context("copying the audio")?;
+    media::waveform_overlay(
+        &current.join("audio.mp3"),
+        &current.join("waveform.mp4"),
+        cfg.video_width,
+        cfg.video_height,
+    )
+    .context("rendering the waveform overlay")?;
     let duration = media::duration_secs(audio)?;
     let props = project.join("props.json");
     std::fs::write(

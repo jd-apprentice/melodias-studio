@@ -10,7 +10,6 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
-import {useAudioData, visualizeAudio} from '@remotion/media-utils';
 
 export type MelodiasVideoProps = {
   durationSec: number;
@@ -26,10 +25,6 @@ export const MelodiasVideo: React.FC<MelodiasVideoProps> = ({
   const showSparks = particles !== 'bokeh';
   const frame = useCurrentFrame();
   const {fps, durationInFrames} = useVideoConfig();
-  const audioData = useAudioData(staticFile('current/audio.mp3'));
-  const samples = audioData
-    ? visualizeAudio({audioData, frame, fps, numberOfSamples: 64, smoothing: true})
-    : new Array(64).fill(0);
 
   const zoom = interpolate(frame, [0, durationInFrames], [1.03, 1.1], {
     extrapolateRight: 'clamp',
@@ -105,21 +100,12 @@ export const MelodiasVideo: React.FC<MelodiasVideoProps> = ({
         }}
       />
 
-      <AbsoluteFill style={{justifyContent: 'flex-end', padding: '0 70px 40px'}}>
-        <div style={{display: 'flex', alignItems: 'flex-end', gap: 6, height: 130}}>
-          {samples.map((value, index) => (
-            <div
-              key={index}
-              style={{
-                flex: 1,
-                height: `${Math.max(2, Math.min(1, Math.pow(value, 0.65)) * 100)}%`,
-                background: '#56d4dd',
-                opacity: 0.62,
-                borderRadius: 2,
-              }}
-            />
-          ))}
-        </div>
+      <AbsoluteFill style={{mixBlendMode: 'screen', opacity: 0.6}}>
+        <OffthreadVideo
+          src={staticFile('current/waveform.mp4')}
+          muted
+          style={{width: '100%', height: '100%', objectFit: 'cover'}}
+        />
       </AbsoluteFill>
 
       {channel ? (

@@ -169,7 +169,7 @@ The judge is implemented in `src/judge.rs`. It runs before the review, writes `w
 Two renderers, same inputs (chosen still and mastered track):
 
 - **ffmpeg**, `media::assemble_video`: fast (~2 min), deterministic, used only when requested with `VIDEO_RENDERER=ffmpeg` or `melodias video <dir>`. Slow zoom, moving sprite particles, waveform band and fades.
-- **Remotion**, the `video/` project: the pipeline default (~12 min at 1080p30). Uses the particle and bird clips in `assets/videos/` as screen overlays, an audio-reactive waveform from `@remotion/media-utils`, a slow zoom, the channel label and fades. `VIDEO_PARTICLES=both|bokeh|sparks` selects the particle layers. Run `melodias render <dir>` to force it on a finished run.
+- **Remotion**, the `video/` project: the pipeline default (~12 min at 1080p30). Uses the particle and bird clips in `assets/videos/` as screen overlays, the same `showwaves` line as the fast renderer (rendered by ffmpeg as a screen overlay), a slow zoom, the channel label and fades. `VIDEO_PARTICLES=both|bokeh|sparks` selects the particle layers. Run `melodias render <dir>` to force it on a finished run.
 
 Both write `video.mp4`. Remotion is the pipeline default; `VIDEO_RENDERER=ffmpeg` or `melodias video` keeps the fast cut, and a previous video is kept as `video-ffmpeg.mp4` when re-rendering.
 
