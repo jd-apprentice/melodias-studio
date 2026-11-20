@@ -19,13 +19,24 @@ The order is deliberate: the image runs first because it is the most fragile sta
 
 - Rust 1.85+ (`rustup default stable`).
 - `yt-dlp`, `ffmpeg`, `ffprobe`, `scp` and `ssh` on `PATH`.
-- Three services on the GPU VM:
-  - `llama-server` (Qwen) on `:8080`
-  - `sd-server` (MOSS-Image) on `:8081`
-  - `audiocpp_server` (ACE-Step) on `:8090`
-- Passwordless SSH to the VM, used to stage the audio reference and to run lifecycle commands.
+- Three services on the GPU VM, started by the scripts in [`deploy/`](deploy/):
+  - `llama-server` with `Qwen3-4B-Instruct-2507` on `:8080`
+  - `sd-server` with MOSS-Image on `:1234`
+  - `audiocpp_server` with ACE-Step on `:8090`
+- Passwordless SSH to the VM, used to stage the audio reference and to run the lifecycle commands.
 
-The P40 has 24 GB, so the models do not fit together. `qwen3.6-35b` alone takes most of it, which is why the pipeline stops the LLM before starting `sd-server`.
+The P40 has 24 GB. A 4B model only keeps ~3.4 GB busy, so the prompt step and `sd-server` (11.4 GB) can hold the GPU at the same time; the audio stage still stops `sd-server` before loading ACE-Step.
+
+## Deploy the server scripts
+
+```bash
+ssh root@192.168.88.38 'mkdir -p /home/ubuntu/bin'
+scp deploy/serve-*.sh root@192.168.88.38:/home/ubuntu/bin/
+scp deploy/audio-server.json root@192.168.88.38:/home/ubuntu/
+ssh root@192.168.88.38 'chmod +x /home/ubuntu/bin/serve-*.sh'
+```
+
+Each script answers `start`, `stop` and `status`, keeps a pidfile in `/run` and a log in `/var/log`. Paths inside them assume the layout used on this VM: llama.cpp and stable-diffusion.cpp built under `/home/ubuntu`, audio.cpp under `/root`, models under `/models`.
 
 ## Usage
 
@@ -61,24 +72,15 @@ Everything is read from the environment, with defaults pointing at the VM:
 
 ### GPU lifecycle commands
 
-These are optional and run over SSH between stages. Leave them empty to manage the servers by hand:
+They run over SSH between stages. The defaults point at the `deploy/` scripts; override or empty them to manage the servers by hand:
 
-| Variable | When it runs |
-| --- | --- |
-| `LLM_STOP_CMD` | after the thumbnail prompt, before `sd-server` starts |
-| `SD_START_CMD` | right after `LLM_STOP_CMD` |
-| `SD_STOP_CMD` | before the audio stage |
-| `AUDIO_START_CMD` | right after `SD_STOP_CMD` |
-
-Example, if each server is a systemd unit on the VM:
-
-```bash
-LLM_STOP_CMD="systemctl stop llama-server" \
-SD_START_CMD="systemctl start sd-server" \
-SD_STOP_CMD="systemctl stop sd-server" \
-AUDIO_START_CMD="systemctl start audiocpp-server" \
-cargo run
-```
+| Variable | Default | When it runs |
+| --- | --- | --- |
+| `LLM_START_CMD` | `/home/ubuntu/bin/serve-llm.sh start` | before the thumbnail prompt |
+| `LLM_STOP_CMD` | empty | after the prompt; empty because the 4B fits |
+| `SD_START_CMD` | `/home/ubuntu/bin/serve-sd.sh start` | before the thumbnail |
+| `SD_STOP_CMD` | `/home/ubuntu/bin/serve-sd.sh stop` | before the audio stage |
+| `AUDIO_START_CMD` | `/home/ubuntu/bin/serve-audio.sh start` | before the audio stage |
 
 The app waits for `/health` on the service it just started, up to 180 s, before moving on.
 

@@ -1,0 +1,15 @@
+{
+  "host": "0.0.0.0",
+  "port": 8090,
+  "backend": "cuda",
+  "device": 0,
+  "lazy_load": true,
+  "models": [
+    {
+      "id": "ace-step",
+      "family": "ace_step",
+      "path": "/models/ACE-Step1.5-GGUF/base/ace-step-1.5-base-bf16.gguf",
+      "task": "gen"
+    }
+  ]
+}

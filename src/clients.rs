@@ -74,16 +74,17 @@ fn wait(name: &str, timeout: Duration, probe: impl Fn() -> Result<()>) -> Result
 
 pub fn ask_image_prompt(cfg: &Config, vibe: &str) -> Result<String> {
     let url = format!("{}/v1/chat/completions", cfg.llm_url.trim_end_matches('/'));
-    let system = "You write prompts for a text-to-image model. Reply with a single \
-line in English, no quotes, no explanation. Always describe a 16:9 YouTube thumbnail \
-in 8-bit pixel art style with an anime character, detailed pixel background, \
-nostalgic mood, no text and no watermark.";
+    let system = "You write prompts for a text-to-image model. Reply with ONE line of at \
+most 60 words, in English, no quotes, no explanation. Describe a 16:9 YouTube thumbnail \
+in 8-bit pixel art style: one anime character in a scene, detailed pixelated background, \
+nostalgic cozy mood. Never mention audio, BPM, tempo, music, songs, text or watermarks.";
     let user = format!(
-        "Thumbnail concept, keep the same scene but adapt the palette and props to it: {vibe}"
+        "Thumbnail concept, keep the scene but adapt the palette and props to it: {vibe}"
     );
     let body = json!({
         "model": cfg.llm_model,
-        "temperature": 0.7,
+        "temperature": 0.5,
+        "max_tokens": 220,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user}
@@ -96,10 +97,13 @@ nostalgic mood, no text and no watermark.";
         .and_then(|r| r.error_for_status())
         .with_context(|| format!("llama-server falló en {url}"))?
         .json()?;
-    let text = resp["choices"][0]["message"]["content"]
+    let raw = resp["choices"][0]["message"]["content"]
         .as_str()
-        .context("respuesta del LLM sin content")?
-        .trim()
+        .context("respuesta del LLM sin content")?;
+    let text = raw
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
         .trim_matches('"')
         .to_string();
     if text.is_empty() {

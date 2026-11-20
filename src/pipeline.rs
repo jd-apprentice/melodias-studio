@@ -78,7 +78,8 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
 
     // The LLM writes the thumbnail prompt while it still owns the GPU.
     let image_prompt = step(tx, 0, || {
-        clients::wait_llm(cfg, Duration::from_secs(30))?;
+        media::ssh_run(cfg, &cfg.llm_start_cmd)?;
+        clients::wait_llm(cfg, Duration::from_secs(180))?;
         clients::ask_image_prompt(cfg, vibe)
     })?;
     log(tx, format!("prompt imagen: {image_prompt}"));
