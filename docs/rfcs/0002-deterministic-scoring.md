@@ -23,7 +23,7 @@ Measuring the same run locally shows the same problems with numbers:
 | Unique colors in the thumbnail | 216,853 | Not pixel art. A posterized sprite should be under 2,048 |
 | Luma std of the thumbnail at 168x94 | 0.179 | Readable, good contrast |
 | Pixels with high value and high saturation | 0.0 % | No neon glow, matches the repaired eyes |
-| OCR tokens with confidence >= 70 and length >= 3 | 0 | No text or watermark |
+| OCR words with confidence >= 75 and length >= 4 | 0 | No text or watermark |
 | Integrated loudness | -14.6 LUFS | Inside the -15 ± 1 target |
 | True peak | -1.4 dBFS | Below the -1 ceiling |
 | Energy above 5 kHz | 4.0 % | Weak chiptune character, mostly orchestral |
@@ -77,7 +77,7 @@ Otherwise the loop runs, or the run ends marked `accepted_by_limit`.
 | --- | --- | --- | --- |
 | `IMG_PALETTE` | unique RGB values in the PNG | <= 256: full; 256..2,048: linear 20..10; 2,048..16,384: linear 10..0; above: 0 | 20 |
 | `IMG_CONTRAST` | luma standard deviation at 168x94 | >= 0.18: full; 0.10..0.18: linear; below 0.10: 0 | 10 |
-| `IMG_TEXT` | OCR tokens, confidence >= 70, length >= 3 | 0 tokens: full; -10 per token | 10 |
+| `IMG_TEXT` | OCR words: confidence >= 75, length >= 4, at least 2 alphanumeric | 0 words: full; -10 per word | 10 |
 | `IMG_GLOW` | share of pixels with V >= 0.95 and S >= 0.85 | <= 0.2 %: full; 0.2..2 %: linear down; above 2 %: 0 | 5 |
 | `IMG_SATURATION` | mean S in HSL | 0.30..0.75: full; outside: linear to 0 at 0.15 away | 5 |
 
@@ -95,7 +95,7 @@ Otherwise the loop runs, or the run ends marked `accepted_by_limit`.
 | `AUD_SILENCE` | longest silent gap before the last 5 s | <= 1 s: full; 1..2 s: linear; above 2 s: 0 | 5 |
 | `AUD_DURATION` | length against `DURATION_SEC` | within 2 s: full; outside: 0 | 5 |
 
-`AUD_BUILD` is the honest measure of "epic": a track that starts at full energy and never builds loses points. The current run loses 3.8 of 8 there.
+`AUD_BUILD` is the honest measure of "epic": a track that starts at full energy and never builds loses points. The current run loses 3.5 of 8 there.
 
 `AUD_SILENCE` excludes the tail because `FADE_OUT_SEC` leaves an intentional near-silence; the current 4.6 s at the end is not a defect.
 
@@ -228,6 +228,20 @@ create table patches (
 
 The `rubric` column matters: a threshold change starts a new version, and trends only compare rows with the same one. Without it, "the score went up" can just mean "the rubric got softer".
 
+### Backfill
+
+The first database was built from the three runs already in `output/` with a throwaway script, before any pipeline change. All three scored below the target, which is the expected starting point:
+
+| Run | Technical | Editorial | Total |
+| --- | --- | --- | --- |
+| `epic-8-bit-emotional-artcore-orchestra` | 66.2 | - | 66.2 |
+| `epic-8-bit-orchestral-finale` | 67.3 | - | 67.3 |
+| `world-s-most-epic-emotional-violin` | 72.4 | 67.0 | 70.2 |
+
+The palette costs 20 points in every run, with 205k to 368k colors. The build and the high band lose about 4 points each in all three. One legacy run is 72 s long instead of 210 s, which the duration rule catches. Only the newest run has an editorial score, because the judge did not exist before it.
+
+The backfill also tightened the OCR filter: a three-character junk token at confidence 73 cost 10 points on a clean thumbnail. Requiring four characters and confidence 75 removed the false positive.
+
 The useful view is the cost of each finding over time:
 
 ```sql
@@ -264,11 +278,11 @@ The current run, scored with this rubric:
 | Audio | peak | -1.4 dBFS | 8.0 / 8 |
 | Audio | centroid | 3.3 kHz | 8.0 / 8 |
 | Audio | highs | 4.0 % | 4.8 / 8 |
-| Audio | build | -0.1 dB | 4.2 / 8 |
+| Audio | build | -0.2 dB | 4.5 / 8 |
 | Audio | silence | 0 s | 5.0 / 5 |
 | Audio | duration | 210.0 s | 5.0 / 5 |
 
-`technical = 72.1`, `editorial = 67`, `total = 70.1`. The run would fail the 80 target, and the report would name `IMG_PALETTE` as the first fix. Posterizing to 2,048 colors takes technical to 92.1 and total to 82.1, before touching the audio.
+`technical = 72.4`, `editorial = 67`, `total = 70.2`. The run would fail the 80 target, and the report would name `IMG_PALETTE` as the first fix. Posterizing to 2,048 colors takes technical to 92.4 and total to 82.2, before touching the audio.
 
 ## Calibration
 
@@ -298,7 +312,7 @@ The editorial score is the weak part and the RFC does not hide it:
 - **Gaming the metric.** Posterizing to hit `IMG_PALETTE` can make the thumbnail worse. The editorial weight, the gates and the review screen stay as counterweights.
 - **Threshold drift.** Technical scores are only comparable within a rubric version. Store it.
 - **New dependency.** `rusqlite` is a build-time addition; bundled SQLite avoids a system package. `tesseract` stays optional and `IMG_TEXT` is skipped when it is missing, with a note in the report.
-- **False positives.** OCR on illustrated art invents words. The length and confidence filters keep the current run clean; the threshold may need tuning on more runs.
+- **False positives.** OCR on illustrated art invents words. The first backfill caught a three-character junk token at confidence 73, so the filter now requires four characters, confidence 75 and two alphanumerics. It stays a tuning problem; the threshold may need more runs.
 - **Audio metrics are coarse.** Centroid and high-band energy describe timbre, not melody. They point in the right direction and do not replace listening.
 - **History is personal data.** It stays local, in the config directory, and is never sent anywhere.
 
