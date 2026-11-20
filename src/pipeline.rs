@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -7,16 +7,17 @@ use anyhow::{Context, Result};
 
 use crate::{clients, config::Config, media};
 
-pub const STAGES: [&str; 9] = [
+pub const STAGES: [&str; 10] = [
     "Image prompt",
     "Prepare image",
-    "Thumbnail",
+    "Image pool",
     "Download",
     "Reference",
     "Upload",
-    "Audio",
-    "Master",
-    "Save",
+    "Audio drafts",
+    "Review",
+    "Final take",
+    "Master + save",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -25,6 +26,24 @@ pub enum State {
     Running,
     Ok,
     Failed,
+}
+
+#[derive(Clone, Debug)]
+pub struct Candidate {
+    pub file: PathBuf,
+    pub seed: u32,
+}
+
+#[derive(Clone, Debug)]
+pub struct Pool {
+    pub images: Vec<Candidate>,
+    pub audios: Vec<Candidate>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Selection {
+    pub image: usize,
+    pub audio: usize,
 }
 
 pub struct Outcome {
@@ -37,14 +56,19 @@ pub struct Outcome {
 pub enum Msg {
     Stage(usize, State),
     Log(String),
+    Choose(Pool),
     Done(Result<Outcome, String>),
 }
 
-pub fn spawn(cfg: Config, url: String, vibe: String, tx: Sender<Msg>) {
+/// Starts the run and returns the channel the UI uses to answer the review.
+pub fn spawn(cfg: Config, url: String, vibe: String, tx: Sender<Msg>) -> Sender<Selection> {
+    let (decision_tx, decision_rx) = channel();
     thread::spawn(move || {
-        let result = run(&cfg, &url, &vibe, &tx).map_err(|e| format!("{e:#}"));
+        let result =
+            run(&cfg, &url, &vibe, &tx, &decision_rx).map_err(|error| format!("{error:#}"));
         let _ = tx.send(Msg::Done(result));
     });
+    decision_tx
 }
 
 fn step<T>(tx: &Sender<Msg>, idx: usize, f: impl FnOnce() -> Result<T>) -> Result<T> {
@@ -79,15 +103,28 @@ pub fn stage_label(idx: usize, state: State) -> Option<String> {
     }
 }
 
-fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome> {
+fn run(
+    cfg: &Config,
+    url: &str,
+    vibe: &str,
+    tx: &Sender<Msg>,
+    decisions: &Receiver<Selection>,
+) -> Result<Outcome> {
+    let count = cfg.candidates.max(1);
     let slug = slugify(vibe);
-    let work = cfg.out_dir.join(&slug).join("work");
+    let root = cfg.out_dir.join(&slug);
+    let work = root.join("work");
+    let candidates_dir = root.join("candidates");
     std::fs::create_dir_all(&work).context("creating the work directory")?;
+    std::fs::create_dir_all(&candidates_dir).context("creating the candidates directory")?;
     let seed = random_seed();
     let image_seed = cfg.image_seed.unwrap_or_else(random_seed);
 
-    log(tx, format!("working in {}", work.display()));
-    log(tx, format!("audio seed {seed} · image seed {image_seed}"));
+    log(tx, format!("working in {}", root.display()));
+    log(
+        tx,
+        format!("audio seed {seed} · image seed {image_seed} · {count} candidates"),
+    );
     media::preflight()?;
 
     // The LLM writes the thumbnail prompt while it still owns the GPU.
@@ -106,30 +143,50 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
     })?;
 
     let image_started = std::time::Instant::now();
-    let image_bytes = step(tx, 2, || {
-        clients::generate_image(cfg, &image_prompt, image_seed)
+    let images = step(tx, 2, || {
+        let mut candidates = Vec::new();
+        for index in 0..count {
+            let candidate_seed = image_seed.wrapping_add(index);
+            let bytes = clients::generate_image(cfg, &image_prompt, candidate_seed)?;
+            let path = candidates_dir.join(format!("image-{:02}.png", index + 1));
+            std::fs::write(&path, &bytes).context("saving an image candidate")?;
+            let (width, height) = media::png_size(&path)?;
+            if (width, height) != (cfg.width, cfg.height) {
+                log(
+                    tx,
+                    format!(
+                        "warning: candidate {} returned {width}x{height} instead of {}x{}",
+                        index + 1,
+                        cfg.width,
+                        cfg.height
+                    ),
+                );
+            }
+            log(
+                tx,
+                format!(
+                    "image candidate {}/{}: {} (seed {candidate_seed}, {:.1} MB)",
+                    index + 1,
+                    count,
+                    path.display(),
+                    bytes.len() as f64 / 1e6
+                ),
+            );
+            candidates.push(Candidate {
+                file: path,
+                seed: candidate_seed,
+            });
+        }
+        Ok(candidates)
     })?;
-    let image = cfg.out_dir.join(&slug).join("thumbnail.png");
-    std::fs::write(&image, &image_bytes).context("saving the thumbnail")?;
-    let (width, height) = media::png_size(&image)?;
     log(
         tx,
         format!(
-            "thumbnail: {} ({width}x{height}, {:.1} MB, {:.1} min)",
-            image.display(),
-            image_bytes.len() as f64 / 1e6,
+            "image pool: {} candidates in {:.1} min",
+            images.len(),
             image_started.elapsed().as_secs_f64() / 60.0
         ),
     );
-    if (width, height) != (cfg.width, cfg.height) {
-        log(
-            tx,
-            format!(
-                "warning: the server returned {width}x{height} instead of {}x{}",
-                cfg.width, cfg.height
-            ),
-        );
-    }
 
     let source = step(tx, 3, || media::download_audio(url, &work))?;
     log(tx, format!("source: {}", source.display()));
@@ -147,21 +204,106 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
     let remote = step(tx, 5, || media::push_reference(cfg, &reference, &slug))?;
     log(tx, format!("remote reference: {remote}"));
 
-    // The vibe is the only audio prompt. The word "instrumental" plus the
-    // negative prompt keep voices out of every delivery.
     let audio_prompt = compose_audio_prompt(vibe, &cfg.audio_style);
     log(tx, format!("prompt audio: {audio_prompt}"));
 
-    let audio_result = step(tx, 6, || {
+    let drafts_result = step(tx, 6, || {
         // The timbre reference pushes ACE-Step past what fits next to the 4B,
         // so both the image model and the LLM go away before the audio stage.
         media::ssh_run(cfg, &cfg.sd_stop_cmd)?;
         media::ssh_run(cfg, &cfg.llm_stop_cmd)?;
         media::ssh_run(cfg, &cfg.audio_start_cmd)?;
         clients::wait_audio(cfg, Duration::from_secs(180))?;
-        clients::generate_audio(cfg, &audio_prompt, &remote, seed)
+        let mut candidates = Vec::new();
+        for index in 0..count {
+            let candidate_seed = seed.wrapping_add(index);
+            let bytes = clients::generate_audio(
+                cfg,
+                clients::AudioRequest {
+                    prompt: &audio_prompt,
+                    reference: &remote,
+                    seed: candidate_seed,
+                    duration_sec: cfg.audio_draft_sec.max(10),
+                    steps: cfg.audio_draft_steps.max(1),
+                    sampler: &cfg.audio_draft_sampler,
+                },
+            )?;
+            let path = candidates_dir.join(format!("audio-{:02}.wav", index + 1));
+            std::fs::write(&path, &bytes).context("saving an audio draft")?;
+            log(
+                tx,
+                format!(
+                    "audio draft {}/{}: {} (seed {candidate_seed}, {:.0} s)",
+                    index + 1,
+                    count,
+                    path.display(),
+                    media::duration_secs(&path)?
+                ),
+            );
+            candidates.push(Candidate {
+                file: path,
+                seed: candidate_seed,
+            });
+        }
+        Ok(candidates)
     });
-    // Release the P40 even when the take failed, so a later image stage can load.
+    let audios = match drafts_result {
+        Ok(audios) => audios,
+        Err(err) => {
+            let _ = media::ssh_run(cfg, &cfg.audio_stop_cmd);
+            return Err(err);
+        }
+    };
+
+    // The audio server stays loaded while the review is open and the final
+    // take runs, then it is released even if something fails.
+    let pool = Pool {
+        images: images.clone(),
+        audios: audios.clone(),
+    };
+    let selection = step(tx, 7, || {
+        let _ = tx.send(Msg::Choose(pool));
+        decisions.recv().context("the review was cancelled")
+    })?;
+    let selected_image = images
+        .get(selection.image)
+        .context("the selected image does not exist")?;
+    let selected_audio = audios
+        .get(selection.audio)
+        .context("the selected audio draft does not exist")?;
+    log(
+        tx,
+        format!(
+            "selected image {} and audio draft {}",
+            selection.image + 1,
+            selection.audio + 1
+        ),
+    );
+
+    let final_result = step(tx, 8, || {
+        let bytes = clients::generate_audio(
+            cfg,
+            clients::AudioRequest {
+                prompt: &audio_prompt,
+                reference: &remote,
+                seed: selected_audio.seed,
+                duration_sec: cfg.duration_sec,
+                steps: cfg.steps,
+                sampler: &cfg.sampler,
+            },
+        )?;
+        let take = work.join("take.wav");
+        std::fs::write(&take, &bytes).context("saving the take")?;
+        log(
+            tx,
+            format!(
+                "final take: {} ({:.1} MB)",
+                take.display(),
+                bytes.len() as f64 / 1e6
+            ),
+        );
+        Ok(take)
+    });
     let stopped = media::ssh_run(cfg, &cfg.audio_stop_cmd);
     if let Err(err) = &stopped {
         log(
@@ -169,73 +311,93 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
             format!("warning: the audio server is still up: {err:#}"),
         );
     }
-    let audio_bytes = audio_result?;
-    let take = work.join("take.wav");
-    std::fs::write(&take, &audio_bytes).context("saving the take")?;
-    log(
-        tx,
-        format!(
-            "take: {} ({:.1} MB)",
-            take.display(),
-            audio_bytes.len() as f64 / 1e6
-        ),
-    );
-
-    let mastered = step(tx, 7, || media::master_take(cfg, &take, &work))?;
-    let mp3 = media::encode_mp3(&mastered, &work, 320)?;
-    log(
-        tx,
-        format!(
-            "master: {} ({:.0} s)",
-            mp3.display(),
-            media::duration_secs(&mp3)?
-        ),
-    );
+    let take = final_result?;
 
     let master = format!(
         "fade-in {} s, fade-out {} s, {} LUFS",
         cfg.fade_in_sec, cfg.fade_out_sec, cfg.loudness_lufs
     );
 
-    step(tx, 8, || {
-        let final_audio = cfg.out_dir.join(&slug).join("audio.mp3");
+    let (final_audio, final_image) = step(tx, 9, || {
+        let mastered = media::master_take(cfg, &take, &work)?;
+        let mp3 = media::encode_mp3(&mastered, &work, 320)?;
+        log(
+            tx,
+            format!(
+                "master: {} ({:.0} s)",
+                mp3.display(),
+                media::duration_secs(&mp3)?
+            ),
+        );
+
+        let final_audio = root.join("audio.mp3");
         std::fs::copy(&mp3, &final_audio)?;
+        let final_image = root.join("thumbnail.png");
+        std::fs::copy(&selected_image.file, &final_image)?;
+
+        let image_candidates: Vec<_> = images
+            .iter()
+            .map(|candidate| {
+                serde_json::json!({
+                    "file": candidate.file.display().to_string(),
+                    "seed": candidate.seed,
+                })
+            })
+            .collect();
+        let audio_candidates: Vec<_> = audios
+            .iter()
+            .map(|candidate| {
+                serde_json::json!({
+                    "file": candidate.file.display().to_string(),
+                    "seed": candidate.seed,
+                })
+            })
+            .collect();
+
         let meta = serde_json::json!({
             "slug": slug,
             "source_url": url,
             "vibe": vibe,
             "image_prompt": image_prompt,
-            "seed": seed,
+            "seed": selected_audio.seed,
+            "image": {
+                "size": format!("{}x{}", cfg.width, cfg.height),
+                "steps": cfg.image_steps,
+                "candidates": image_candidates,
+                "selected": selection.image + 1,
+                "file": final_image.display().to_string(),
+            },
             "audio": {
                 "model": cfg.audio_model,
                 "prompt": audio_prompt,
                 "negative_prompt": cfg.audio_negative_prompt,
-                "steps": cfg.steps,
-                "guidance": cfg.guidance,
-                "sampler": cfg.sampler,
-                "duration_sec": cfg.duration_sec,
+                "draft": {
+                    "duration_sec": cfg.audio_draft_sec,
+                    "steps": cfg.audio_draft_steps,
+                    "sampler": cfg.audio_draft_sampler,
+                    "candidates": audio_candidates,
+                    "selected": selection.audio + 1,
+                },
+                "final": {
+                    "duration_sec": cfg.duration_sec,
+                    "steps": cfg.steps,
+                    "guidance": cfg.guidance,
+                    "sampler": cfg.sampler,
+                    "seed": selected_audio.seed,
+                },
                 "master": master,
                 "reference": remote,
-                "file": final_audio,
-            },
-            "image": {
-                "size": format!("{}x{}", cfg.width, cfg.height),
-                "steps": cfg.image_steps,
-                "seed": image_seed,
-                "file": image,
+                "file": final_audio.display().to_string(),
             }
         });
-        std::fs::write(
-            cfg.out_dir.join(&slug).join("meta.json"),
-            serde_json::to_vec_pretty(&meta)?,
-        )?;
-        Ok(())
+        std::fs::write(root.join("meta.json"), serde_json::to_vec_pretty(&meta)?)?;
+        Ok((final_audio, final_image))
     })?;
 
     Ok(Outcome {
-        audio: cfg.out_dir.join(&slug).join("audio.mp3"),
-        image,
-        seed,
+        audio: final_audio,
+        image: final_image,
+        seed: selected_audio.seed,
         image_prompt,
     })
 }

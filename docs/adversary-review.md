@@ -1,6 +1,6 @@
 # Adversary review and video assembly
 
-Status: in progress. Phase 1 (image seed and steps) is implemented. Candidate pools, critics and the judge are not.
+Status: in progress. Phases 1 and 2 are implemented: image seeds and steps, candidate pools, manifest data and the manual review. Critics, the judge and the assembly are not.
 
 ## Why
 
@@ -11,7 +11,7 @@ The proposal is to generate a small pool of candidates per modality, let local c
 ## Goals
 
 - Improve the average quality without a human in the loop.
-- Stay within a 30-minute budget per video, assembly included.
+- Stay within roughly 40 minutes per video, assembly included.
 - Bound the review with an explicit round limit and a score threshold.
 - Keep the local-only mode working: the cloud judge is optional.
 - Record every candidate, score and decision in a manifest.
@@ -50,9 +50,11 @@ The pools run sequentially because a single GPU cannot hold the image model and 
 
 ## Candidate pools
 
-- `IMAGE_CANDIDATES` and `AUDIO_CANDIDATES`, default 2 each.
+- `CANDIDATES`, default 3, for both pools. Implemented.
 - Every candidate keeps its seed and parameters in `manifest.json`.
 - Image seeds and steps are sent through `sd_cpp_extra_args`; the same seed and steps reproduce the image.
+- The TUI pauses on a review screen and the chosen pair drives the final take. The headless mode picks the first candidate.
+- The candidate data lives in `meta.json`.
 - Each pool loads its model once and generates all candidates before unloading it.
 - Candidates are not regenerated at full steps; the same parameters are used for the whole pool.
 
@@ -166,7 +168,7 @@ Why each choice:
 - **Keep the model loaded across the pool.** One load per modality, all candidates inside it.
 - **Turbo for audio drafts is optional.** ACE-Step Turbo caps at 8 steps but requires switching the DiT and reloading, so it only pays off if the reload is cheaper than the saved steps. Measure before adopting it.
 
-The target budget is 30 minutes per video, assembly included. The default N=2 with 20-step images, 60 s audio drafts and one full take fits it.
+The target budget is roughly 40 minutes per video, assembly included. N=3 is the default at about 36 minutes; N=2 is the faster option.
 
 Measured wall time, warm model:
 
@@ -177,7 +179,7 @@ Measured wall time, warm model:
 | Assembly | none | ~1 min | ~1 min |
 | Total | ~20 min | ~29 min | ~36 min |
 
-N=2 fits the budget. N=3 goes over and stays opt-in. Three full audio candidates would be about 42 minutes; the saving comes from the short audio drafts.
+N=3 fits the accepted budget. Three full audio candidates would be about 42 minutes; the saving comes from the short audio drafts.
 
 One quality question remains:
 
@@ -188,7 +190,7 @@ If the answer is no, the budget cannot afford two full takes. The fallback is on
 ## Configuration sketch
 
 ```
-CANDIDATES=2
+CANDIDATES=3
 IMAGE_STEPS=20
 IMAGE_SEED=
 AUDIO_STEPS=32
@@ -208,7 +210,7 @@ The same keys belong in `config.toml` once the feature exists. Image seeds and s
 ## Phased plan
 
 1. Image steps and seed through `sd_cpp_extra_args`, plus the draft/final policy. Seed, steps and the image tier (full steps) are done; the audio draft policy is pending validation.
-2. Manifest and candidate pools, with a manual pick in the TUI. No new models.
+2. Manifest and candidate pools, with a manual pick in the TUI. No new models. Done: `meta.json` records the candidates and the selection.
 3. Deterministic hard gates and a local ranking.
 4. Review loop with rounds and thresholds.
 5. Optional cloud judge with the JSON contract.

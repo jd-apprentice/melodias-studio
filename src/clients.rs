@@ -125,7 +125,18 @@ mention audio, BPM, tempo, music, songs, text or watermarks.",
     Ok(text)
 }
 
-pub fn generate_audio(cfg: &Config, prompt: &str, reference: &str, seed: u32) -> Result<Vec<u8>> {
+/// One take: drafts and the final share the same request shape, only the
+/// duration, steps and sampler change.
+pub struct AudioRequest<'a> {
+    pub prompt: &'a str,
+    pub reference: &'a str,
+    pub seed: u32,
+    pub duration_sec: u32,
+    pub steps: u32,
+    pub sampler: &'a str,
+}
+
+pub fn generate_audio(cfg: &Config, take: AudioRequest<'_>) -> Result<Vec<u8>> {
     let url = format!("{}/v1/tasks/run", cfg.audio_url.trim_end_matches('/'));
     // The server only forwards the nested `options` object to the ACE-Step
     // parser. duration_sec, reference_audio and sampler_mode are ignored when
@@ -134,14 +145,14 @@ pub fn generate_audio(cfg: &Config, prompt: &str, reference: &str, seed: u32) ->
         "model": cfg.audio_model,
         "request": {
             "route": "text2music",
-            "text": prompt,
-            "seed": seed,
-            "num_inference_steps": cfg.steps,
+            "text": take.prompt,
+            "seed": take.seed,
+            "num_inference_steps": take.steps,
             "guidance_scale": cfg.guidance,
             "options": {
-                "reference_audio": reference,
-                "duration_sec": cfg.duration_sec,
-                "sampler_mode": cfg.sampler,
+                "reference_audio": take.reference,
+                "duration_sec": take.duration_sec,
+                "sampler_mode": take.sampler,
                 "negative_prompt": cfg.audio_negative_prompt
             }
         }

@@ -14,6 +14,10 @@ The reference URL is optional in the product vision but required by the current 
 - `Enter` moves to the next field, then starts the run.
 - `q` quits, only once the run finished.
 
+When the pools are ready the run pauses on a review screen. Pick one image and one audio draft with `1-9`, switch sections with `Tab`, and continue with `Enter`. The candidates live under `output/<slug>/candidates/`; open them to compare.
+
+![Review screen](assets/tui-review.png)
+
 Each stage shows its state, the progress bar tracks how many are done, and the log prints every step, including the prompt the LLM wrote and the seed of the take. A splash with the version appears for a moment on start.
 
 ## Headless run
@@ -24,7 +28,7 @@ Passing the reference URL and the vibe as arguments runs the same pipeline witho
 MELODIAS_LOG=output/run.log melodias 'https://www.youtube.com/watch?v=...' 'epic 8-bit orchestral finale'
 ```
 
-The log receives the same lines as plain text, so it can be read later without escape codes. Quote the URL: a YouTube link copied from a playlist carries `&list=` and `&index=`, which the shell would otherwise split. The exit code is non-zero when a stage fails.
+The headless mode auto-selects candidate 1 for both pools, so use the TUI when you want to choose. The log receives the same lines as plain text, so it can be read later without escape codes. Quote the URL: a YouTube link copied from a playlist carries `&list=` and `&index=`, which the shell would otherwise split. The exit code is non-zero when a stage fails.
 
 The image stage reports its own duration and the size of the PNG it got back, and warns when the server returned something other than the requested size.
 
@@ -47,9 +51,10 @@ The image stage reports its own duration and the size of the PNG it got back, an
 ```
 output/<slug>/
 ├── audio.mp3      # 3 min song, 320 kbps, -15 LUFS
-├── thumbnail.png  # 1280x720
-├── meta.json      # seed, prompts, parameters and source URL
-└── work/          # source, reference and raw take
+├── thumbnail.png  # the chosen 1280x720 candidate
+├── meta.json      # candidates, seeds, prompts, selection and source URL
+├── candidates/    # N image candidates and N audio drafts
+└── work/          # source, reference and final take
 ```
 
 ## Screenshots

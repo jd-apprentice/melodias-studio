@@ -4,7 +4,7 @@
 
 A Rust TUI that generates 8-bit thumbnails and original three to four minute instrumental chiptunes for a YouTube channel, using local models.
 
-A reference track can guide the timbre. The thumbnail and the music are generated from scratch, not converted from the source.
+A reference track can guide the timbre. The thumbnail and the music are generated from scratch, not converted from the source. Each run produces three thumbnail candidates and three audio drafts, then pauses for you to pick the pair.
 
 ## Quick Start
 

@@ -40,6 +40,11 @@ pub struct Config {
     pub image_steps: u32,
     /// Optional fixed seed to reproduce an image candidate.
     pub image_seed: Option<u32>,
+    /// Number of candidates per modality.
+    pub candidates: u32,
+    pub audio_draft_sec: u32,
+    pub audio_draft_steps: u32,
+    pub audio_draft_sampler: String,
     pub reference_sec: u32,
     pub fade_in_sec: f64,
     pub fade_out_sec: f64,
@@ -113,6 +118,14 @@ impl Config {
             image_seed: env("IMAGE_SEED")
                 .and_then(|value| value.parse().ok())
                 .or(file.image_seed),
+            candidates: pick_parsed(env("CANDIDATES"), file.candidates, 3),
+            audio_draft_sec: pick_parsed(env("AUDIO_DRAFT_SEC"), file.audio_draft_sec, 60),
+            audio_draft_steps: pick_parsed(env("AUDIO_DRAFT_STEPS"), file.audio_draft_steps, 16),
+            audio_draft_sampler: pick(
+                env("AUDIO_DRAFT_SAMPLER"),
+                file.audio_draft_sampler,
+                "euler",
+            ),
             reference_sec: pick_parsed(env("REFERENCE_SEC"), file.reference_sec, 60),
             fade_in_sec: pick_parsed(env("FADE_IN_SEC"), file.fade_in_sec, 1.5),
             fade_out_sec: pick_parsed(env("FADE_OUT_SEC"), file.fade_out_sec, 3.0),
@@ -182,6 +195,10 @@ struct FileConfig {
     height: Option<u32>,
     image_steps: Option<u32>,
     image_seed: Option<u32>,
+    candidates: Option<u32>,
+    audio_draft_sec: Option<u32>,
+    audio_draft_steps: Option<u32>,
+    audio_draft_sampler: Option<String>,
     reference_sec: Option<u32>,
     fade_in_sec: Option<f64>,
     fade_out_sec: Option<f64>,
@@ -224,6 +241,8 @@ mod tests {
             image_style = "watercolor"
             image_steps = 12
             image_seed = 42
+            candidates = 3
+            audio_draft_sec = 60
         "#;
         let file: FileConfig = toml::from_str(text).unwrap();
         assert_eq!(file.ssh_host.as_deref(), Some("user@10.0.0.5"));
@@ -234,6 +253,8 @@ mod tests {
         assert_eq!(file.image_style.as_deref(), Some("watercolor"));
         assert_eq!(file.image_steps, Some(12));
         assert_eq!(file.image_seed, Some(42));
+        assert_eq!(file.candidates, Some(3));
+        assert_eq!(file.audio_draft_sec, Some(60));
         assert_eq!(file.steps, None);
     }
 }

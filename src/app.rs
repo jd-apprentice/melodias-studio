@@ -1,6 +1,6 @@
 use std::fs::{File, OpenOptions};
 use std::io::Write;
-use std::sync::mpsc::{Receiver, TryRecvError, channel};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
@@ -11,12 +11,26 @@ use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Padding, Paragraph
 use ratatui::{DefaultTerminal, Frame};
 
 use crate::config::Config;
-use crate::pipeline::{self, Msg, STAGES, State};
+use crate::pipeline::{self, Msg, STAGES, Selection, State};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Field {
     Url,
     Vibe,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReviewField {
+    Images,
+    Audio,
+}
+
+struct Review {
+    images: Vec<pipeline::Candidate>,
+    audios: Vec<pipeline::Candidate>,
+    image: usize,
+    audio: usize,
+    field: ReviewField,
 }
 
 struct App {
@@ -31,6 +45,8 @@ struct App {
     summary: Option<String>,
     tick: u64,
     log: Option<File>,
+    decisions: Option<Sender<Selection>>,
+    review: Option<Review>,
     splash_until: Instant,
 }
 
@@ -48,6 +64,8 @@ impl App {
             summary: None,
             tick: 0,
             log: None,
+            decisions: None,
+            review: None,
             splash_until: Instant::now() + Duration::from_millis(1500),
         }
     }
@@ -61,18 +79,70 @@ impl App {
         self.states = vec![State::Pending; STAGES.len()];
         self.logs.clear();
         self.summary = None;
+        self.review = None;
         self.running = true;
         self.open_log();
-        pipeline::spawn(
+        let decisions = pipeline::spawn(
             self.cfg.clone(),
             self.url.trim().to_string(),
             self.vibe.trim().to_string(),
             tx,
         );
+        self.decisions = Some(decisions);
     }
 
     fn splash_active(&self) -> bool {
         Instant::now() < self.splash_until
+    }
+
+    fn review_key(&mut self, code: KeyCode) {
+        let mut confirm = None;
+        if let Some(review) = self.review.as_mut() {
+            match code {
+                KeyCode::Tab => {
+                    review.field = match review.field {
+                        ReviewField::Images => ReviewField::Audio,
+                        ReviewField::Audio => ReviewField::Images,
+                    };
+                }
+                KeyCode::Char(digit @ '1'..='9') => {
+                    let index = (digit as u8 - b'1') as usize;
+                    match review.field {
+                        ReviewField::Images => {
+                            if index < review.images.len() {
+                                review.image = index;
+                            }
+                        }
+                        ReviewField::Audio => {
+                            if index < review.audios.len() {
+                                review.audio = index;
+                            }
+                        }
+                    }
+                }
+                KeyCode::Enter => {
+                    confirm = Some(Selection {
+                        image: review.image,
+                        audio: review.audio,
+                    });
+                }
+                _ => {}
+            }
+        }
+        if let Some(selection) = confirm {
+            if let Some(tx) = self.decisions.as_ref() {
+                let _ = tx.send(selection);
+            }
+            write_line(
+                &mut self.log,
+                &format!(
+                    "selected image {} and audio draft {}",
+                    selection.image + 1,
+                    selection.audio + 1
+                ),
+            );
+            self.review = None;
+        }
     }
 
     fn open_log(&mut self) {
@@ -115,6 +185,19 @@ impl App {
                     write_line(&mut self.log, &format!("   · {text}"));
                     self.logs.push(text);
                 }
+                Ok(Msg::Choose(pool)) => {
+                    write_line(
+                        &mut self.log,
+                        "review: choose one image and one audio draft",
+                    );
+                    self.review = Some(Review {
+                        images: pool.images,
+                        audios: pool.audios,
+                        image: 0,
+                        audio: 0,
+                        field: ReviewField::Images,
+                    });
+                }
                 Ok(Msg::Done(result)) => {
                     self.running = false;
                     match result {
@@ -147,6 +230,8 @@ impl App {
                         }
                     }
                     self.log = None;
+                    self.decisions = None;
+                    self.review = None;
                     self.rx = None;
                     break;
                 }
@@ -171,6 +256,10 @@ pub fn run(terminal: &mut DefaultTerminal, cfg: Config) -> std::io::Result<()> {
             && let Event::Key(key) = event::read()?
         {
             if key.kind != KeyEventKind::Press {
+                continue;
+            }
+            if app.review.is_some() {
+                app.review_key(key.code);
                 continue;
             }
             app.splash_until = Instant::now();
@@ -209,19 +298,25 @@ pub fn run(terminal: &mut DefaultTerminal, cfg: Config) -> std::io::Result<()> {
 }
 
 fn draw(frame: &mut Frame, app: &App) {
+    let area = frame.area();
     if app.splash_active() {
-        crate::banner::draw(frame, frame.area(), &app.cfg.gpu_label);
+        crate::banner::draw(frame, area, &app.cfg.gpu_label);
         return;
     }
+    if app.review.is_some() {
+        draw_review(frame, app, area);
+        return;
+    }
+    let gauge_height = if area.height < 30 { 1 } else { 3 };
     let [header_area, inputs_area, gauge_area, body_area, status_area] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(4),
-        Constraint::Length(3),
+        Constraint::Length(gauge_height),
         Constraint::Min(8),
         Constraint::Length(1),
     ])
     .spacing(1)
-    .areas(frame.area());
+    .areas(area);
 
     let [url_area, vibe_area] =
         Layout::horizontal([Constraint::Percentage(68), Constraint::Percentage(32)])
@@ -310,22 +405,118 @@ fn draw_gauge(frame: &mut Frame, app: &App, area: Rect) {
     let percent = ok * 100 / total;
     let label = match current {
         Some(name) => format!("{ok}/{total} · {percent}% · {name}"),
-        None if ok == total => format!("{ok}/{total} · completo"),
+        None if ok == total => format!("{ok}/{total} · complete"),
         None => format!("{ok}/{total} · {percent}%"),
     };
-    frame.render_widget(
-        Gauge::default()
-            .block(
+    let gauge = Gauge::default()
+        .gauge_style(Style::default().fg(color))
+        .ratio(ok as f64 / total as f64)
+        .label(label);
+    if area.height >= 3 {
+        frame.render_widget(
+            gauge.block(
                 Block::default()
                     .borders(Borders::ALL)
                     .title(" Progress ")
                     .border_style(Style::default().fg(Color::DarkGray)),
+            ),
+            area,
+        );
+    } else {
+        frame.render_widget(gauge, area);
+    }
+}
+
+fn draw_review(frame: &mut Frame, app: &App, area: Rect) {
+    let Some(review) = &app.review else {
+        return;
+    };
+    let mut lines: Vec<Line> = Vec::new();
+    lines.push(Line::from(vec![
+        Span::styled("Choose ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            "one image",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" and ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            "one audio draft",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        if review.field == ReviewField::Images {
+            "▶ Images"
+        } else {
+            "  Images"
+        },
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )));
+    for (index, candidate) in review.images.iter().enumerate() {
+        lines.push(candidate_line(index, candidate, review.image));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        if review.field == ReviewField::Audio {
+            "▶ Audio drafts"
+        } else {
+            "  Audio drafts"
+        },
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )));
+    for (index, candidate) in review.audios.iter().enumerate() {
+        lines.push(candidate_line(index, candidate, review.audio));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Open the files under candidates/ to inspect them.",
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(Line::from(Span::styled(
+        "Tab switch · 1-9 select · Enter confirm",
+        Style::default().fg(Color::DarkGray),
+    )));
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Review ")
+                    .border_style(Style::default().fg(Color::Cyan)),
             )
-            .gauge_style(Style::default().fg(color))
-            .ratio(ok as f64 / total as f64)
-            .label(label),
+            .wrap(Wrap { trim: false }),
         area,
     );
+}
+
+fn candidate_line(index: usize, candidate: &pipeline::Candidate, selected: usize) -> Line<'static> {
+    let mark = if index == selected { "●" } else { "○" };
+    let name = candidate
+        .file
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+    let style = if index == selected {
+        Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    Line::from(Span::styled(
+        format!("  {mark} {}. {name}  (seed {})", index + 1, candidate.seed),
+        style,
+    ))
 }
 
 fn draw_body(frame: &mut Frame, app: &App, area: Rect) {
@@ -503,14 +694,15 @@ mod tests {
         app.states[6] = State::Running;
         app.running = true;
         app.logs = vec![
-            "working in output/epic-8-bit-emotional-artcore-orchestra/work".to_string(),
-            "audio seed 198759983 · image seed 424242".to_string(),
+            "working in output/epic-8-bit-emotional-artcore-orchestra".to_string(),
+            "audio seed 198759983 · image seed 424242 · 3 candidates".to_string(),
             "image prompt: anime girl with glowing pixel eyes, 8-bit forest, warm sunset".to_string(),
-            "thumbnail: output/epic-8-bit-emotional-artcore-orchestra/thumbnail.png (1280x720, 1.5 MB, 5.9 min)".to_string(),
+            "image candidate 1/3: output/epic-8-bit-emotional-artcore-orchestra/candidates/image-01.png (seed 424242, 2.2 MB)".to_string(),
+            "image pool: 3 candidates in 14.8 min".to_string(),
             "source: output/epic-8-bit-emotional-artcore-orchestra/work/source.wav".to_string(),
             "reference: output/epic-8-bit-emotional-artcore-orchestra/work/reference.wav (60 s)".to_string(),
             "prompt audio: epic 8-bit emotional artcore & orchestra, 8-bit chiptune, instrumental, soft intro that builds gradually".to_string(),
-            "take: output/epic-8-bit-emotional-artcore-orchestra/work/take.wav (40.3 MB)".to_string(),
+            "audio draft 1/3: output/epic-8-bit-emotional-artcore-orchestra/candidates/audio-01.wav (seed 198759983, 60 s)".to_string(),
         ];
         app
     }
@@ -538,6 +730,48 @@ mod tests {
                 let _ = std::fs::create_dir_all(&dir);
                 dump_html(&terminal, width, height, &dir.join("tui.html"));
             }
+
+            app.review = Some(Review {
+                images: vec![
+                    pipeline::Candidate {
+                        file: PathBuf::from("candidates/image-01.png"),
+                        seed: 424242,
+                    },
+                    pipeline::Candidate {
+                        file: PathBuf::from("candidates/image-02.png"),
+                        seed: 424243,
+                    },
+                    pipeline::Candidate {
+                        file: PathBuf::from("candidates/image-03.png"),
+                        seed: 424244,
+                    },
+                ],
+                audios: vec![
+                    pipeline::Candidate {
+                        file: PathBuf::from("candidates/audio-01.wav"),
+                        seed: 198759983,
+                    },
+                    pipeline::Candidate {
+                        file: PathBuf::from("candidates/audio-02.wav"),
+                        seed: 198759984,
+                    },
+                    pipeline::Candidate {
+                        file: PathBuf::from("candidates/audio-03.wav"),
+                        seed: 198759985,
+                    },
+                ],
+                image: 1,
+                audio: 0,
+                field: ReviewField::Images,
+            });
+            terminal.draw(|frame| draw(frame, &app)).unwrap();
+            dump(&terminal, width, height, "review");
+            if let Some(dir) = std::env::var_os("DUMP_TUI_HTML_DIR") {
+                let dir = PathBuf::from(dir);
+                let _ = std::fs::create_dir_all(&dir);
+                dump_html(&terminal, width, height, &dir.join("tui-review.html"));
+            }
+            app.review = None;
         }
     }
 

@@ -12,7 +12,7 @@ use std::sync::mpsc::channel;
 
 use crossterm::style::Stylize;
 
-use pipeline::{Msg, State};
+use pipeline::{Msg, Selection, State};
 
 const USAGE: &str =
     "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)";
@@ -65,12 +65,45 @@ fn run_headless(cfg: config::Config, args: &[String]) -> io::Result<()> {
     out.line(separator, colored);
 
     let (tx, rx) = channel();
-    pipeline::spawn(cfg, url.trim().to_string(), vibe.trim().to_string(), tx);
+    let decisions = pipeline::spawn(cfg, url.trim().to_string(), vibe.trim().to_string(), tx);
 
     for msg in rx {
         match msg {
             Msg::Stage(idx, state) => out.stage(idx, state),
             Msg::Log(text) => out.log_line(&text),
+            Msg::Choose(pool) => {
+                out.line("", None);
+                let header = format!(
+                    "Review: {} images and {} audio drafts",
+                    pool.images.len(),
+                    pool.audios.len()
+                );
+                let colored = out
+                    .pretty
+                    .then(|| header.as_str().cyan().bold().to_string());
+                out.line(&header, colored);
+                for (index, candidate) in pool.images.iter().enumerate() {
+                    out.log_line(&format!(
+                        "image {}: {} (seed {})",
+                        index + 1,
+                        candidate.file.display(),
+                        candidate.seed
+                    ));
+                }
+                for (index, candidate) in pool.audios.iter().enumerate() {
+                    out.log_line(&format!(
+                        "audio {}: {} (seed {})",
+                        index + 1,
+                        candidate.file.display(),
+                        candidate.seed
+                    ));
+                }
+                let selection = Selection { image: 0, audio: 0 };
+                let _ = decisions.send(selection);
+                out.log_line(
+                    "auto-selected image 1 and audio draft 1 (headless; use the TUI to choose)",
+                );
+            }
             Msg::Done(Ok(outcome)) => {
                 out.line("", None);
                 let line = format!(
@@ -177,8 +210,8 @@ mod tests {
         out.log_line("image prompt: pixel art castle");
 
         let text = std::fs::read_to_string(&path).unwrap();
-        assert!(text.contains("▶ 1/9 Image prompt"));
-        assert!(text.contains("✔ 1/9 Image prompt"));
+        assert!(text.contains("▶ 1/10 Image prompt"));
+        assert!(text.contains("✔ 1/10 Image prompt"));
         assert!(text.contains("   · image prompt: pixel art castle"));
         let _ = std::fs::remove_file(path);
     }

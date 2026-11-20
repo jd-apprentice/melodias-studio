@@ -40,6 +40,10 @@
 # height = 720
 # image_steps = 20
 # image_seed = 42
+# candidates = 3
+# audio_draft_sec = 60
+# audio_draft_steps = 16
+# audio_draft_sampler = "euler"
 # reference_sec = 60
 # audio_negative_prompt = "vocals, singing, voice, choir, lyrics, humming, vocal chops, spoken word"
 

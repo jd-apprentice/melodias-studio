@@ -4,10 +4,12 @@
 vibe + reference URL
         │
         ├─ llama-server ───► thumbnail prompt (needs the GPU)
-        ├─ sd-server ──────► 1280x720 thumbnail
+        ├─ sd-server ──────► N thumbnail candidates at 1280x720
         ├─ yt-dlp ─────────► reference WAV
         ├─ ffmpeg ─────────► 60 s excerpt with the most energy
-        ├─ audiocpp_server ► 210 s original take with reference_audio
+        ├─ audiocpp_server ► N draft takes with reference_audio
+        ├─ review ─────────► manual pick of one image and one draft
+        ├─ audiocpp_server ► final take from the chosen draft seed
         └─ ffmpeg ─────────► fade-in/out + loudnorm -15 LUFS
 ```
 
@@ -26,6 +28,7 @@ node ~/.agents/skills/archify/bin/archify.mjs finalize architecture docs/archite
 ## Design notes
 
 - **The reference is an excerpt, not the whole song.** ACE-Step samples three 10 s windows from the file, so the app picks the minute with the highest average energy and skips intros and breakdowns. It conditions timbre and style, not the melody: the result is not a cover of the source.
+- **Pools and a manual review.** Each run generates `CANDIDATES` images (3 by default) at 20 steps and the same number of 60 s audio drafts. The run pauses on the review screen; the chosen image becomes `thumbnail.png` and the chosen draft seed drives the full length final take.
 - **The medium is a rule.** Images are pinned to `IMAGE_STYLE` (default 8-bit pixel art) and audio to `AUDIO_STYLE` (default 8-bit chiptune). The vibe adds mood and references, not the medium.
 - **Every track is instrumental.** The vibe is sent as `<vibe>, instrumental` and `options.negative_prompt` lists vocals, singing, choir, lyrics and humming. ACE-Step uses that text as the unconditional CFG prompt, so it steers away from voices instead of hoping the caption is ignored.
 - **The audio parameters travel inside `options`.** `/v1/tasks/run` only forwards the nested `options` object to the ACE-Step parser, so `duration_sec`, `reference_audio` and `sampler_mode` at the top level of `request` are silently dropped. Sent inside `options`, `duration_sec` returns an exact length.
