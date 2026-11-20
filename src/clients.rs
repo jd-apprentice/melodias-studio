@@ -161,8 +161,19 @@ pub fn generate_audio(cfg: &Config, prompt: &str, reference: &str, seed: u32) ->
         .context("invalid base64 audio")
 }
 
-pub fn generate_image(cfg: &Config, prompt: &str) -> Result<Vec<u8>> {
+/// sd-server strips this block before generation. It carries the native
+/// stable-diffusion.cpp fields that the OpenAI endpoint does not expose.
+fn with_extra_args(prompt: &str, seed: u32, steps: u32) -> String {
+    let extra = json!({
+        "seed": seed,
+        "sample_params": { "sample_steps": steps }
+    });
+    format!("{prompt} <sd_cpp_extra_args>{extra}</sd_cpp_extra_args>")
+}
+
+pub fn generate_image(cfg: &Config, prompt: &str, seed: u32) -> Result<Vec<u8>> {
     let url = format!("{}/v1/images/generations", cfg.sd_url.trim_end_matches('/'));
+    let prompt = with_extra_args(prompt, seed, cfg.image_steps);
     let body = json!({
         "prompt": prompt,
         "n": 1,
@@ -182,4 +193,18 @@ pub fn generate_image(cfg: &Config, prompt: &str) -> Result<Vec<u8>> {
     base64::engine::general_purpose::STANDARD
         .decode(b64)
         .context("invalid base64 image")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_extra_args_carry_seed_and_steps() {
+        let prompt = with_extra_args("pixel art", 42, 12);
+        assert!(prompt.starts_with("pixel art <sd_cpp_extra_args>"));
+        assert!(prompt.contains("\"seed\":42"));
+        assert!(prompt.contains("\"sample_steps\":12"));
+        assert!(prompt.ends_with("</sd_cpp_extra_args>"));
+    }
 }

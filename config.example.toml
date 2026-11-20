@@ -38,6 +38,8 @@
 # sampler = "heun"
 # width = 1280
 # height = 720
+# image_steps = 20
+# image_seed = 42
 # reference_sec = 60
 # audio_negative_prompt = "vocals, singing, voice, choir, lyrics, humming, vocal chops, spoken word"
 

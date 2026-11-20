@@ -504,7 +504,7 @@ mod tests {
         app.running = true;
         app.logs = vec![
             "working in output/epic-8-bit-emotional-artcore-orchestra/work".to_string(),
-            "seed 198759983".to_string(),
+            "audio seed 198759983 · image seed 424242".to_string(),
             "image prompt: anime girl with glowing pixel eyes, 8-bit forest, warm sunset".to_string(),
             "thumbnail: output/epic-8-bit-emotional-artcore-orchestra/thumbnail.png (1280x720, 1.5 MB, 5.9 min)".to_string(),
             "source: output/epic-8-bit-emotional-artcore-orchestra/work/source.wav".to_string(),

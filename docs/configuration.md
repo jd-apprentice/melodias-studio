@@ -29,6 +29,8 @@ cp config.example.toml ~/.config/melodias-studio/config.toml
 | `GUIDANCE` | `5` | CFG |
 | `SAMPLER` | `heun` | `euler` or `heun` |
 | `WIDTH` / `HEIGHT` | `1280` / `720` | thumbnail size |
+| `IMAGE_STEPS` | `20` | diffusion steps for the thumbnail |
+| `IMAGE_SEED` | random | fixed seed to reproduce a thumbnail |
 | `REFERENCE_SEC` | `60` | length of the timbre reference, clamped to 5..120 |
 | `FADE_IN_SEC` | `1.5` | master fade-in |
 | `FADE_OUT_SEC` | `3.0` | master fade-out |

@@ -84,9 +84,10 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
     let work = cfg.out_dir.join(&slug).join("work");
     std::fs::create_dir_all(&work).context("creating the work directory")?;
     let seed = random_seed();
+    let image_seed = cfg.image_seed.unwrap_or_else(random_seed);
 
     log(tx, format!("working in {}", work.display()));
-    log(tx, format!("seed {seed}"));
+    log(tx, format!("audio seed {seed} · image seed {image_seed}"));
     media::preflight()?;
 
     // The LLM writes the thumbnail prompt while it still owns the GPU.
@@ -105,7 +106,9 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
     })?;
 
     let image_started = std::time::Instant::now();
-    let image_bytes = step(tx, 2, || clients::generate_image(cfg, &image_prompt))?;
+    let image_bytes = step(tx, 2, || {
+        clients::generate_image(cfg, &image_prompt, image_seed)
+    })?;
     let image = cfg.out_dir.join(&slug).join("thumbnail.png");
     std::fs::write(&image, &image_bytes).context("saving the thumbnail")?;
     let (width, height) = media::png_size(&image)?;
@@ -217,6 +220,8 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
             },
             "image": {
                 "size": format!("{}x{}", cfg.width, cfg.height),
+                "steps": cfg.image_steps,
+                "seed": image_seed,
                 "file": image,
             }
         });

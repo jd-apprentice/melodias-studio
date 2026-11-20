@@ -1,6 +1,6 @@
 # Adversary review and video assembly
 
-Status: proposal. Nothing in this document is implemented yet.
+Status: in progress. Phase 1 (image seed and steps) is implemented. Candidate pools, critics and the judge are not.
 
 ## Why
 
@@ -51,7 +51,7 @@ The pools run sequentially because a single GPU cannot hold the image model and 
 
 - `IMAGE_CANDIDATES` and `AUDIO_CANDIDATES`, default 2 each.
 - Every candidate keeps its seed and parameters in `manifest.json`.
-- Image seeds are not sent yet. The first prerequisite is adding a seed to the sd-server request so a candidate can be reproduced.
+- Image seeds and steps are sent through `sd_cpp_extra_args`; the same seed and steps reproduce the image.
 - Each pool loads its model once and generates all candidates before unloading it.
 - Candidates are not regenerated at full steps; the same parameters are used for the whole pool.
 
@@ -187,6 +187,7 @@ If either answer is no, keep the full parameters for that modality and accept th
 ```
 CANDIDATES=2
 IMAGE_STEPS=20
+IMAGE_SEED=
 IMAGE_DRAFT_STEPS=12
 AUDIO_STEPS=32
 AUDIO_DRAFT_STEPS=16
@@ -204,7 +205,7 @@ The same keys belong in `config.toml` once the feature exists. Image seeds are n
 
 ## Phased plan
 
-1. Image steps and seed through `sd_cpp_extra_args`, plus the draft/final policy. Validate the syntax against the server.
+1. Image steps and seed through `sd_cpp_extra_args`, plus the draft/final policy. Seed and steps are done and validated; the draft/final policy is pending.
 2. Manifest and candidate pools, with a manual pick in the TUI. No new models.
 3. Deterministic hard gates and a local ranking.
 4. Review loop with rounds and thresholds.
@@ -218,5 +219,5 @@ The same keys belong in `config.toml` once the feature exists. Image seeds are n
 - The cloud judge cannot hear the track. Either accept a metrics-only review or use an audio-capable model.
 - Cost and time grow linearly with the number of candidates. Two is the safe default.
 - Judge reliability: strict schema, one revision, and fail-open to the local pick.
-- Reproducibility: image seeds are not sent today, so image candidates cannot be replayed. Fix that first.
+- Reproducibility: image seeds and steps are now sent; recheck that a server update keeps the same output for the same input.
 - Blending audio across takes can sound worse than the best single take. Measure before shipping it.
