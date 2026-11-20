@@ -145,25 +145,53 @@ output/<slug>/
 
 The manifest records the brief, resolved config, seeds, hard gate results, soft scores, rounds used, judge verdict and the chosen paths.
 
-## Runtime and VRAM
+## Cost control and runtime
 
-Approximate numbers from the current P40 setup:
+More candidates only make sense if a round stays affordable. The current costs come from three choices: the image request sends no steps, so the server uses its 20-step recipe; the audio request uses 32 steps with heun, which evaluates the model twice per step; and every candidate pays the full duration.
 
-| Step | Today | With two candidates |
+Use two tiers:
+
+| Tier | Image | Audio |
 | --- | --- | --- |
-| Image stage | ~6 min | ~12 min |
-| Audio stage | ~14 min at 32 steps | ~28 min |
-| Local critics | none | seconds per model load |
-| Judge | none | seconds, no GPU |
-| Assembly | none | under a minute |
+| Draft (the pool) | 1280x720, 10 to 12 steps | 60 s, 16 steps, euler |
+| Final (the winner) | 1280x720, 20 steps | configured duration, 32 steps, heun |
 
-The critics use small CLIP and CLAP models. Run them after the big model is unloaded, and keep the LLM stopped during audio as the pipeline already does.
+Why each choice:
+
+- **Image steps before resolution.** Keep the same 1280x720 canvas for drafts. Changing the canvas changes the latent layout, and with the same seed the final would not match the candidate the critic picked. Steps and seed travel inside `sd_cpp_extra_args`, which the server strips before generation.
+- **A low-step draft is close enough.** With the same seed and size, 12 steps and 20 steps usually share the composition. The critic ranks the draft, and the winner is regenerated at 20 steps.
+- **Image resolution is the last lever.** 1024x576 saves more time but changes the composition. If it is used, the critic must rank the draft and the final must be reviewed again, which defeats part of the saving.
+- **Short audio drafts rank style, not the arc.** A 60 s draft at 16 euler steps is enough to compare timbre, energy and prompt adherence. The full 210 s take is generated once, at 32 heun steps, and passes the hard gates for intro, outro and duration.
+- **Keep the model loaded across the pool.** One load per modality, all candidates inside it.
+- **Turbo for audio drafts is optional.** ACE-Step Turbo caps at 8 steps but requires switching the DiT and reloading, so it only pays off if the reload is cheaper than the saved steps. Measure before adopting it.
+
+Rough wall time on the P40, to be measured rather than trusted:
+
+| Step | Today | N=2 draft/final | N=3 draft/final |
+| --- | --- | --- | --- |
+| Image pool | ~6 min for one | ~6 min + ~6 min final | ~9 min + ~6 min final |
+| Audio pool | ~14 min for one | ~4 min + ~14 min final | ~6 min + ~14 min final |
+| Total | ~20 min | ~30 min | ~35 min |
+
+For comparison, three full candidates would be about 60 minutes. The saving comes mostly from the short audio drafts, not from the images.
+
+Two quality questions to settle with an A/B before shipping the policy:
+
+- Does 12-step MOSS-Image hold up against 20 steps on this style?
+- Does a 60 s draft rank the same take that a full 210 s run would produce?
+
+If either answer is no, keep the full parameters for that modality and accept the longer round.
 
 ## Configuration sketch
 
 ```
-IMAGE_CANDIDATES=2
-AUDIO_CANDIDATES=2
+CANDIDATES=2
+IMAGE_STEPS=20
+IMAGE_DRAFT_STEPS=12
+AUDIO_STEPS=32
+AUDIO_DRAFT_STEPS=16
+AUDIO_DRAFT_SEC=60
+AUDIO_DRAFT_SAMPLER=euler
 REVIEW_ROUNDS=2
 REVIEW_THRESHOLD=0.75
 JUDGE_ENABLED=false
@@ -172,16 +200,17 @@ JUDGE_API_KEY=
 ASSEMBLY_PRESET=auto
 ```
 
-The same keys belong in `config.toml` once the feature exists.
+The same keys belong in `config.toml` once the feature exists. Image seeds are not sent today, so a candidate cannot be replayed; sending `seed` in `sd_cpp_extra_args` is the first prerequisite.
 
 ## Phased plan
 
-1. Manifest and candidate pools, with a manual pick in the TUI. No new models.
-2. Deterministic hard gates and a local ranking.
-3. Review loop with rounds and thresholds.
-4. Optional cloud judge with the JSON contract.
-5. Video assembly.
-6. Bar-aligned splicing, only if the seams measure clean.
+1. Image steps and seed through `sd_cpp_extra_args`, plus the draft/final policy. Validate the syntax against the server.
+2. Manifest and candidate pools, with a manual pick in the TUI. No new models.
+3. Deterministic hard gates and a local ranking.
+4. Review loop with rounds and thresholds.
+5. Optional cloud judge with the JSON contract.
+6. Video assembly.
+7. Bar-aligned splicing, only if the seams measure clean.
 
 ## Risks and open questions
 

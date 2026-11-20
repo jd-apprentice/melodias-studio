@@ -181,7 +181,7 @@ node ~/.agents/skills/archify/bin/archify.mjs finalize architecture docs/arquite
 
 ## Future: adversary review
 
-The next architectural step is optional and not implemented yet. It generates several candidates per modality, lets local critics score and pick them within a fixed number of rounds, and optionally sends the shortlist to a stronger cloud judge before assembling the final video. See [`docs/adversary-review.md`](docs/adversary-review.md) for the flow, the scoring signals, the judge contract and the cost and VRAM tradeoffs.
+The next architectural step is optional and not implemented yet. It generates several candidates per modality, lets local critics score and pick them within a fixed number of rounds, and optionally sends the shortlist to a stronger cloud judge before assembling the final video. See [`docs/adversary-review.md`](docs/adversary-review.md) for the flow, the scoring signals, the judge contract and the draft/final cost policy that keeps the extra rounds affordable.
 
 ## Roadmap
 
