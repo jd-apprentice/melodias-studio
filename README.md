@@ -4,6 +4,8 @@ A Rust TUI that turns a YouTube song into two deliverables: **one thumbnail** an
 
 The pipeline is not tied to one machine. It talks to three HTTP services (chat, image and music) and to `yt-dlp` and `ffmpeg`. The defaults point at a single GPU box over SSH, but endpoints, model ids, the host, folders, master settings and the lifecycle commands come from environment variables or `~/.config/melodias-studio/config.toml`.
 
+![melodias-studio splash](docs/tui-splash.png)
+
 ```
 YouTube URL + vibe
         │
@@ -55,6 +57,8 @@ melodias
 `make install` builds the release binary and copies it to `~/.local/bin/melodias`. Override `BINDIR` or `PREFIX` if you keep binaries elsewhere, and make sure that folder is on `PATH`. `make uninstall` removes it. `cargo run` still works for development.
 
 ### TUI
+
+![melodias-studio TUI](docs/tui.png)
 
 - `Tab` switches between the URL and the vibe.
 - `Enter` moves to the next field, then starts the run.
