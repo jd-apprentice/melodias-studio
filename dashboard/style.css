@@ -409,6 +409,17 @@ td.slug {
   color: var(--bad);
 }
 
+.badge.limit {
+  background: rgb(251 191 36 / 14%);
+  color: #d97706;
+}
+
+@media (prefers-color-scheme: dark) {
+  .badge.limit {
+    color: #fbbf24;
+  }
+}
+
 .empty {
   margin: 0;
   padding: 28px 18px;

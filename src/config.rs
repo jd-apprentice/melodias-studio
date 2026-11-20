@@ -60,6 +60,8 @@ pub struct Config {
     pub image_seed: Option<u32>,
     /// Number of candidates per modality.
     pub candidates: u32,
+    /// Deterministic retry rounds; 0 disables the loop.
+    pub score_rounds: u32,
     pub audio_draft_sec: u32,
     pub audio_draft_steps: u32,
     pub audio_draft_sampler: String,
@@ -174,6 +176,7 @@ impl Config {
                 .and_then(|value| value.parse().ok())
                 .or(file.image_seed),
             candidates: pick_parsed(env("CANDIDATES"), file.candidates, 3),
+            score_rounds: pick_parsed(env("SCORE_ROUNDS"), file.score_rounds, 2),
             audio_draft_sec: pick_parsed(env("AUDIO_DRAFT_SEC"), file.audio_draft_sec, 60),
             audio_draft_steps: pick_parsed(env("AUDIO_DRAFT_STEPS"), file.audio_draft_steps, 16),
             audio_draft_sampler: pick(
@@ -277,6 +280,7 @@ struct FileConfig {
     image_steps: Option<u32>,
     image_seed: Option<u32>,
     candidates: Option<u32>,
+    score_rounds: Option<u32>,
     audio_draft_sec: Option<u32>,
     audio_draft_steps: Option<u32>,
     audio_draft_sampler: Option<String>,
@@ -308,36 +312,5 @@ impl FileConfig {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reads_the_optional_fields() {
-        let text = r#"
-            ssh_host = "user@10.0.0.5"
-            duration_sec = 240
-            fade_in_sec = 2.0
-            audio_negative_prompt = "vocals"
-            audio_style = "lofi"
-            image_style = "watercolor"
-            image_negative_prompt = "glowing eyes"
-            image_steps = 12
-            image_seed = 42
-            candidates = 3
-            audio_draft_sec = 60
-        "#;
-        let file: FileConfig = toml::from_str(text).unwrap();
-        assert_eq!(file.ssh_host.as_deref(), Some("user@10.0.0.5"));
-        assert_eq!(file.duration_sec, Some(240));
-        assert_eq!(file.fade_in_sec, Some(2.0));
-        assert_eq!(file.audio_negative_prompt.as_deref(), Some("vocals"));
-        assert_eq!(file.audio_style.as_deref(), Some("lofi"));
-        assert_eq!(file.image_style.as_deref(), Some("watercolor"));
-        assert_eq!(file.image_negative_prompt.as_deref(), Some("glowing eyes"));
-        assert_eq!(file.image_steps, Some(12));
-        assert_eq!(file.image_seed, Some(42));
-        assert_eq!(file.candidates, Some(3));
-        assert_eq!(file.audio_draft_sec, Some(60));
-        assert_eq!(file.steps, None);
-    }
-}
+#[path = "tests/config.rs"]
+mod tests;

@@ -45,6 +45,7 @@ cp config.example.toml ~/.config/melodias-studio/config.toml
 | `IMAGE_STEPS` | `20` | diffusion steps for the thumbnail |
 | `IMAGE_SEED` | random | fixed seed to reproduce a thumbnail |
 | `CANDIDATES` | `3` | candidates per modality |
+| `SCORE_ROUNDS` | `2` | deterministic retry rounds; `0` disables the loop |
 | `AUDIO_DRAFT_SEC` | `60` | length of each audio draft |
 | `AUDIO_DRAFT_STEPS` | `16` | steps for the audio drafts |
 | `AUDIO_DRAFT_SAMPLER` | `euler` | sampler for the audio drafts |
@@ -54,6 +55,8 @@ cp config.example.toml ~/.config/melodias-studio/config.toml
 | `LOUDNESS_LUFS` | `-15` | master loudness target |
 
 The judge is optional: it runs when `JUDGE_ENABLED` is not `false` and the selected provider has a key. It compresses the candidates to 768 px JPEGs and 15 s mono clips, sends them to a model that can see and hear, and preselects the best pair in the review; `Enter` accepts it. If the key is missing, the API fails or the JSON is invalid, the run falls back to the manual pick and logs it.
+
+The judge also receives the deterministic findings and returns up to five `must_fix` codes for what the rubric cannot measure. They are normalized to the vocabulary `eyes`, `composition`, `style`, `retro`, `coherence` or `other`, and kept in `work/judge/verdict.json` and `meta.json`. They do not change the editorial score yet.
 
 `JUDGE_PROVIDER=auto` uses OpenCode Go when `OPENCODE_API_KEY` is set and OpenRouter otherwise. The OpenCode backend is a single `generateContent` call to `gemini-4-argon`, which accepts images and MP3 in the same request (about 20 s and $0.019 of list cost per run, drawn from the Go monthly allowance). The OpenRouter backend is two stages: the free omni model perceives, the free text model decides. OpenRouter requires at least **$0.50 of balance for audio inputs**, even on a free model; image-only requests work without balance.
 
@@ -90,6 +93,10 @@ The write happens after the video stage, with the score computed from the finish
 
 Each `runs` row carries the `rubric` version, so a trend only compares runs scored with the same one. The pool candidates and the findings of the final pair are stored next to it.
 
+`runs.outcome` is `accepted`, `accepted_by_limit` or `below_target` (the last one is what the backfill writes for runs made before the loop). `accepted_by_limit` means the run finished the retry budget without reaching the target; `outcome_reason` says which side stopped it. The applied prompt patches live in the `patches` table, with the positive and negative prompt as a JSON object.
+
+Older databases are migrated on the next write: the outcome columns are added and existing accepted rows are mapped back. Readers such as `melodias history` and the dashboard tolerate a database that has not been migrated yet.
+
 `melodias history` reads the file and never writes:
 
 | Command | What it shows |
@@ -100,6 +107,18 @@ Each `runs` row carries the `rubric` version, so a trend only compares runs scor
 | `melodias history trend --by day` | average technical and total per day, also `week` or `month` |
 
 `make history ARGS=findings` is the shortcut. Runs made before the write existed are added with `make backfill`, which writes the same tables.
+
+### Retry loop
+
+The run scores each side before the review. If the best image is under 85, it applies the patch for the worst actionable finding and regenerates that side while sd-server is still up, up to two rounds. The audio side gets one round at most, and only when the image side already passes and the audio lost eight points or more of its 50.
+
+- `SCORE_ROUNDS` caps the rounds per side; the image budget is two and the audio budget is one.
+- The same finding code never triggers twice. Codes that share a patch (`AUD_HIGHS` and `AUD_CENTROID`) count as one.
+- The audio metrics top out at eight points, so their findings are `medium`, not `high`. The loop accepts medium or worse (a loss of four points or more); otherwise every audio patch would be unreachable.
+- The pool caps at nine candidates per side, which is what the TUI can select with `1-9`.
+- The review opens on the judge suggestion; without a judge it opens on the best-scored pair, not candidate 1.
+
+The judge receives the deterministic findings and returns `must_fix` codes in `verdict.json` and `meta.json`, so it does not spend its answer repeating the rubric.
 
 `melodias dashboard` serves a read-only page over the same file at `http://127.0.0.1:7373/`. It binds localhost only, opens the database for reading and polls it once a minute, so new runs appear without a reload. `--port` changes the address and `--limit` the run window (200 by default). The page is a Rust binary plus static files in `dashboard/`; there is no Node and no build step.
 

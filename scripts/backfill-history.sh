@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Backfills the history database from finished runs in output/.
 #
-# This is the bridge until the pipeline writes the database itself (RFC 0002,
-# phase 2). It reads each meta.json, scores the final thumbnail and the final
-# track with the rubric, and writes runs, candidates and findings.
+# It scores runs made before the pipeline wrote the database itself, using the
+# same schema. It reads each meta.json, scores the final thumbnail and the final
+# track with the rubric, and writes runs, candidates and findings. The outcome
+# is below_target because those runs had no retry loop.
 #
 # Requires: jq, ffmpeg, ffprobe, sqlite3, ImageMagick (magick) and tesseract.
 #
@@ -21,7 +22,7 @@ out_dir=""
 replace=0
 
 usage() {
-    sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 for arg in "$@"; do
@@ -63,6 +64,8 @@ create table if not exists runs (
   editorial real,
   total real,
   accepted integer not null,
+  outcome text,
+  outcome_reason text,
   rounds integer not null,
   cost_usd real,
   seconds real,
@@ -100,6 +103,13 @@ create table if not exists patches (
 );
 SQL
 chmod 600 "$db"
+
+# Older databases predate the retry columns; add them without losing rows.
+for column in outcome outcome_reason; do
+    if [ "$(sqlite3 "$db" "select count(*) from pragma_table_info('runs') where name = '$column';")" = "0" ]; then
+        sqlite3 "$db" "alter table runs add column $column text;"
+    fi
+done
 
 # Counts OCR words: confidence >= 75, length >= 4, at least two alphanumerics.
 ocr_words() {
@@ -387,8 +397,8 @@ for meta in "$out_dir"/*/meta.json; do
           judge: (if $provider == "" then null else {provider: $provider, model: $model, allowance: ($allowance | tonumber?)} end)}')
 
     started=$(date -r "$meta" --iso-8601=seconds)
-    run_id=$(sqlite3 "$db" "insert into runs (started_at, slug, vibe, rubric, technical, editorial, total, accepted, rounds, cost_usd, seconds, config_json)
-        values ('$started', '$(sqlq "$slug")', '$(sqlq "$vibe")', 'score-v1', $technical, ${editorial:-null}, $total, $accepted, 0, null, null, '$(sqlq "$config_json")')
+    run_id=$(sqlite3 "$db" "insert into runs (started_at, slug, vibe, rubric, technical, editorial, total, accepted, outcome, rounds, cost_usd, seconds, config_json)
+        values ('$started', '$(sqlq "$slug")', '$(sqlq "$vibe")', 'score-v1', $technical, ${editorial:-null}, $total, $accepted, 'below_target', 0, null, null, '$(sqlq "$config_json")')
         returning id;")
 
     image_n=$(jq '.image.candidates | length' "$meta")

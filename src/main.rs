@@ -7,6 +7,7 @@ mod history;
 mod judge;
 mod media;
 mod pipeline;
+mod retry;
 mod score;
 
 use std::fs::{File, OpenOptions};
@@ -17,7 +18,7 @@ use std::time::Duration;
 
 use crossterm::style::Stylize;
 
-use pipeline::{Msg, Selection, State};
+use pipeline::{Msg, State};
 
 const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias image <dir>      (regenerate the thumbnail of a run)\n       melodias judge <dir>      (review a finished run with the judge)\n       melodias score <dir>      (score a finished run, no GPU)\n       melodias history [view]   (runs, findings or trend, from the local database)\n       melodias dashboard        (local read-only charts over the database)\n       melodias render <dir>     (produced video with Remotion)\n       melodias video <dir>      (fast video with ffmpeg)";
 
@@ -125,11 +126,9 @@ fn run_headless(cfg: config::Config, args: &[String]) -> io::Result<()> {
                     ));
                 }
                 if let Some(note) = &request.note {
-                    out.log_line(&format!("judge: {note}"));
+                    out.log_line(&format!("review: {note}"));
                 }
-                let selection = request
-                    .suggestion
-                    .unwrap_or(Selection { image: 0, audio: 0 });
+                let selection = request.suggestion.unwrap_or(request.default);
                 let _ = decisions.send(selection);
                 out.log_line(&format!(
                     "selected image {} and audio draft {} (headless)",
@@ -404,13 +403,24 @@ fn run_judge(cfg: config::Config, args: &[String]) -> io::Result<()> {
         eprintln!("meta.json has no image or audio candidates");
         std::process::exit(2);
     }
-    let verdict = judge::decide(&cfg, vibe, &images, &audios, &dir.join("work"))
-        .map_err(|error| io::Error::other(format!("{error:#}")))?;
+    let work = dir.join("work");
+    let verdict = judge::decide(
+        &cfg,
+        judge::Request {
+            vibe,
+            images: &images,
+            audios: &audios,
+            work: &work,
+            findings: None,
+        },
+    )
+    .map_err(|error| io::Error::other(format!("{error:#}")))?;
     println!(
-        "judge: image {} · audio {} · score {} · {}",
+        "judge: image {} · audio {} · score {}{} · {}",
         verdict.image + 1,
         verdict.audio + 1,
         verdict.score,
+        verdict.must_fix_suffix(),
         verdict.reason
     );
     println!("raw: {}", dir.join("work/judge/verdict.json").display());
@@ -499,18 +509,26 @@ fn run_image(cfg: config::Config, args: &[String]) -> io::Result<()> {
     let text = std::fs::read_to_string(&meta_path)?;
     let mut meta: serde_json::Value = serde_json::from_str(&text)
         .map_err(|error| io::Error::other(format!("invalid {}: {error}", meta_path.display())))?;
-    let prompt = meta["image_prompt"]
-        .as_str()
-        .ok_or_else(|| io::Error::other("meta.json has no image_prompt"))
-        .map(clients::sanitize_eye_prompt)?;
     let selected = meta["image"]["selected"].as_u64().unwrap_or(1) as usize;
+    let entry = meta["image"]["candidates"]
+        .as_array()
+        .and_then(|candidates| candidates.get(selected.saturating_sub(1)));
+    let prompt = entry
+        .and_then(|candidate| candidate["prompt"].as_str())
+        .or_else(|| meta["image_prompt"].as_str())
+        .ok_or_else(|| io::Error::other("meta.json has no image prompt"))?
+        .to_string();
+    let prompt = clients::sanitize_eye_prompt(&prompt);
+    let negative = entry
+        .and_then(|candidate| candidate["negative_prompt"].as_str())
+        .or_else(|| meta["image"]["negative_prompt"].as_str())
+        .unwrap_or(&cfg.image_negative_prompt)
+        .to_string();
     let count = meta["image"]["candidates"]
         .as_array()
         .map(|candidates| candidates.len() + 1)
         .unwrap_or(1);
-    let seed = meta["image"]["candidates"]
-        .as_array()
-        .and_then(|candidates| candidates.get(selected.saturating_sub(1)))
+    let seed = entry
         .and_then(|candidate| candidate["seed"].as_u64())
         .unwrap_or(1) as u32;
     let candidate = dir.join("candidates").join(format!("image-{count:02}.png"));
@@ -521,7 +539,7 @@ fn run_image(cfg: config::Config, args: &[String]) -> io::Result<()> {
         .map_err(|error| io::Error::other(format!("{error:#}")))?;
     let generated = (|| -> anyhow::Result<()> {
         clients::wait_sd(&cfg, Duration::from_secs(180))?;
-        let bytes = clients::generate_image(&cfg, &prompt, seed)?;
+        let bytes = clients::generate_image(&cfg, &prompt, &negative, seed)?;
         if let Some(parent) = candidate.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -546,6 +564,8 @@ fn run_image(cfg: config::Config, args: &[String]) -> io::Result<()> {
         candidates.push(serde_json::json!({
             "file": candidate.display().to_string(),
             "seed": seed,
+            "prompt": prompt,
+            "negative_prompt": negative,
         }));
     }
     meta["image"]["selected"] = serde_json::json!(count);
@@ -657,22 +677,5 @@ impl Reporter {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn writes_a_clean_log() {
-        let path = std::env::temp_dir().join(format!("melodias-studio-{}.log", std::process::id()));
-        let _ = std::fs::remove_file(&path);
-        let mut out = Reporter::new(Some(path.clone())).unwrap();
-        out.stage(0, State::Running);
-        out.stage(0, State::Ok);
-        out.log_line("image prompt: pixel art castle");
-
-        let text = std::fs::read_to_string(&path).unwrap();
-        assert!(text.contains("▶ 1/11 Image prompt"));
-        assert!(text.contains("✔ 1/11 Image prompt"));
-        assert!(text.contains("   · image prompt: pixel art castle"));
-        let _ = std::fs::remove_file(path);
-    }
-}
+#[path = "tests/main.rs"]
+mod tests;

@@ -44,6 +44,9 @@
 # image_steps = 20
 # image_seed = 42
 # candidates = 3
+# Deterministic retry rounds. 2 by default; the image budget caps at 2 and the
+# audio budget at 1. Set 0 to disable the loop.
+# score_rounds = 2
 # audio_draft_sec = 60
 # audio_draft_steps = 16
 # audio_draft_sampler = "euler"

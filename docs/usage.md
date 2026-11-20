@@ -28,7 +28,7 @@ Passing the reference URL and the vibe as arguments runs the same pipeline witho
 MELODIAS_LOG=output/run.log melodias 'https://www.youtube.com/watch?v=...' 'epic 8-bit orchestral finale'
 ```
 
-The headless mode auto-selects candidate 1 for both pools, so use the TUI when you want to choose. The log receives the same lines as plain text, so it can be read later without escape codes. Quote the URL: a YouTube link copied from a playlist carries `&list=` and `&index=`, which the shell would otherwise split. The exit code is non-zero when a stage fails.
+The headless mode auto-selects the judge suggestion, or the best-scored pair when the judge is off, so use the TUI when you want to choose. The log receives the same lines as plain text, so it can be read later without escape codes. Quote the URL: a YouTube link copied from a playlist carries `&list=` and `&index=`, which the shell would otherwise split. The exit code is non-zero when a stage fails.
 
 The image stage reports its own duration and the size of the PNG it got back, and warns when the server returned something other than the requested size.
 
@@ -89,9 +89,19 @@ The image side is palette, contrast at 168 px, text, glow and saturation. The au
 
 The text check uses `tesseract`. Without it, `IMG_TEXT` is skipped and the image side is renormalized over the remaining metrics.
 
+### Retry loop
+
+The run scores the pool before the review and, when a side misses, regenerates only that side with a patched prompt. The patch is fixed data: `IMG_PALETTE` appends the limited-palette text, `IMG_GLOW` adds the neon negative and the natural-eye positive, and the audio codes append the chiptune, build or continuity text.
+
+- The image side runs up to two rounds while sd-server is up; the audio side runs at most one, only if the image side already passes and the audio lost eight points or more.
+- The same code never triggers twice, and the pool stops growing at nine candidates per side.
+- `SCORE_ROUNDS` caps the rounds per side; set it to `0` to keep the phase 1 behavior and skip the loop.
+- The review opens on the judge suggestion or, without one, on the best-scored pair. The log shows each patch, the scores after each round and why the loop stopped.
+- A run that ends below the target is still saved and marked `accepted_by_limit`; `melodias history` and the dashboard show the outcome, and the run log says which side hit its budget.
+
 ### History
 
-Every finished run records itself in a local SQLite database after the video stage, so the next command does not need the run directory. `melodias history` shows the last 20 runs; `findings` ranks the codes by the points they cost; `trend` averages by day, week or month. `--json` and `--csv` feed a script, and the whole view only reads:
+Every finished run records itself in a local SQLite database after the video stage, so the next command does not need the run directory. `melodias history` shows the last 20 runs with their outcome (`accepted`, `accepted_by_limit` or `below_target`); `findings` ranks the codes by the points they cost; `trend` averages by day, week or month. `--json` and `--csv` feed a script, and the whole view only reads:
 
 ```bash
 melodias history

@@ -200,9 +200,16 @@ fn with_extra_args(prompt: &str, seed: u32, steps: u32, negative_prompt: &str) -
     format!("{prompt} <sd_cpp_extra_args>{extra}</sd_cpp_extra_args>")
 }
 
-pub fn generate_image(cfg: &Config, prompt: &str, seed: u32) -> Result<Vec<u8>> {
+/// One image with an explicit negative prompt, so a retry can add to the
+/// configured one without mutating the config.
+pub fn generate_image(
+    cfg: &Config,
+    prompt: &str,
+    negative_prompt: &str,
+    seed: u32,
+) -> Result<Vec<u8>> {
     let url = format!("{}/v1/images/generations", cfg.sd_url.trim_end_matches('/'));
-    let prompt = with_extra_args(prompt, seed, cfg.image_steps, &cfg.image_negative_prompt);
+    let prompt = with_extra_args(prompt, seed, cfg.image_steps, negative_prompt);
     let body = json!({
         "prompt": prompt,
         "n": 1,
@@ -225,22 +232,5 @@ pub fn generate_image(cfg: &Config, prompt: &str, seed: u32) -> Result<Vec<u8>> 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn glowing_eyes_are_sanitized() {
-        let prompt = sanitize_eye_prompt("a girl with glowing red eyes in a forest");
-        assert_eq!(prompt, "a girl with soft green eyes in a forest");
-    }
-
-    #[test]
-    fn image_extra_args_carry_seed_and_steps() {
-        let prompt = with_extra_args("pixel art", 42, 12, "glowing eyes");
-        assert!(prompt.starts_with("pixel art <sd_cpp_extra_args>"));
-        assert!(prompt.contains("\"seed\":42"));
-        assert!(prompt.contains("\"sample_steps\":12"));
-        assert!(prompt.contains("\"negative_prompt\":\"glowing eyes\""));
-        assert!(prompt.ends_with("</sd_cpp_extra_args>"));
-    }
-}
+#[path = "tests/clients.rs"]
+mod tests;
