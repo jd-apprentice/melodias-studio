@@ -38,6 +38,7 @@ The palette metric alone explains the judge's complaint ("anime with pixel overl
 - Every point lost has a code, a measured value and a threshold, so a human or an agent can act on it.
 - A bounded loop that regenerates only the weak side, with a hard budget.
 - A local history that answers "which finding costs the most, and did the patch help".
+- Every run records itself in that history, without a service and without a second command.
 - No cloud call required. The judge stays optional and only fills the editorial part.
 
 ## Non-goals
@@ -175,6 +176,8 @@ $XDG_CONFIG_HOME/melodias-studio/history.db
 
 `MELODIAS_DB` overrides it, so a run can write into a repo checkout during development. `.gitignore` gets `*.db`, `*.db-wal` and `*.db-shm`. WAL mode, one writer at a time, no server.
 
+Writing is part of the run. When the pipeline finishes, it records one `runs` row, one row per candidate and one `findings` row per lost point, including the judge verdict when there is one. A failed write is logged and never aborts the run, the same way the judge fails open. `melodias history` only reads; it never writes.
+
 ```sql
 create table runs (
   id integer primary key,
@@ -230,12 +233,12 @@ The `rubric` column matters: a threshold change starts a new version, and trends
 
 ### Backfill
 
-The first database was built from the three runs already in `output/` with a throwaway script, before any pipeline change. All three scored below the target, which is the expected starting point:
+`scripts/backfill-history.sh`, also available as `make backfill`, scores the runs already in `output/` with the same rubric, so the history starts with data. It skips a slug that is already present and rewrites it with `--replace`. The first database was built this way, before any pipeline change. All three runs scored below the target, which is the expected starting point:
 
 | Run | Technical | Editorial | Total |
 | --- | --- | --- | --- |
 | `epic-8-bit-emotional-artcore-orchestra` | 66.2 | - | 66.2 |
-| `epic-8-bit-orchestral-finale` | 67.3 | - | 67.3 |
+| `epic-8-bit-orchestral-finale` | 67.1 | - | 67.1 |
 | `world-s-most-epic-emotional-violin` | 72.4 | 67.0 | 70.2 |
 
 The palette costs 20 points in every run, with 205k to 368k colors. The build and the high band lose about 4 points each in all three. One legacy run is 72 s long instead of 210 s, which the duration rule catches. Only the newest run has an editorial score, because the judge did not exist before it.
@@ -296,7 +299,7 @@ The editorial score is the weak part and the RFC does not hide it:
 ## Phases
 
 1. **Metrics and `melodias score`.** `src/score.rs`, pure functions over raw buffers plus parsers for `ffmpeg` output, `work/score.json`, findings in the report. No database, no loop.
-2. **History.** `rusqlite` with the bundled feature, writes at the end of a run, `melodias history` reads. `MELODIAS_DB` and the default path.
+2. **History in every run.** `rusqlite` with the bundled feature, one write at the end of a run, `melodias history` reads. `MELODIAS_DB` and the default path. `scripts/backfill-history.sh` covers the runs made before it exists.
 3. **Retry loop.** Patch table, budget, `accepted_by_limit`, `must_fix` codes in the judge prompt.
 4. **Dashboard.** Static HTML or a small page over the CSV export, once there are enough runs.
 

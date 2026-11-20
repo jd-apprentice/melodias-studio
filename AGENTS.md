@@ -7,6 +7,7 @@ Rust TUI plus CLI (binary `melodias`) for a YouTube channel: a reference URL and
 - Rust 1.85+ (edition 2024). `make check` is the full gate: `cargo fmt --check`, `cargo build`, `cargo clippy --all-targets -- -D warnings`, `cargo test`. There is no CI, so run it before finishing.
 - Single test: `cargo test <name>`. All tests are inline `#[cfg(test)]` modules and need no services, GPU or network.
 - `make run` (TUI), `make generate URL='...' VIBE='...'` (release build + headless, log in `output/run-<timestamp>.log`), `make log`.
+- `make backfill [ARGS=--replace]` scores the finished runs in `output/` into `~/.config/melodias-studio/history.db` (`MELODIAS_DB` overrides it); it needs `jq`, `sqlite3`, ImageMagick and `tesseract`.
 - `make image|judge|render|video DIR=output/<slug>` map to the subcommands. `video` only rebuilds the ffmpeg video; `image` regenerates a thumbnail through sd-server and rebuilds that video; `render` needs `cd video && pnpm install` and a run from the repo root (Remotion, about 12 min); `judge` needs an API key.
 - The screenshots in `docs/` come from the test backend, not a manual capture: `DUMP_TUI_HTML_DIR=/tmp/tui cargo test draws_without_leaving_the_terminal`. `PRINT_TUI=1` prints the buffer as ASCII.
 - `make deploy` and `make status` need SSH access to the GPU host; the rest runs locally.
