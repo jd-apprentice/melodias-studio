@@ -32,6 +32,9 @@ cp config.example.toml ~/.config/melodias-studio/config.toml
 | `SAMPLER` | `heun` | `euler` or `heun` |
 | `WIDTH` / `HEIGHT` | `1280` / `720` | thumbnail size |
 | `VIDEO_WIDTH` / `VIDEO_HEIGHT` | `1920` / `1080` | final video canvas |
+| `VIDEO_RENDERER` | `remotion` | `remotion` or `ffmpeg`; ffmpeg is explicit only |
+| `VIDEO_PARTICLES` | `both` | `both`, `bokeh` or `sparks` in the Remotion composition |
+| `VIDEO_PROJECT` | `video` | Remotion project path, relative to the working directory |
 | `JUDGE_ENABLED` | `true` | runs the judge when the provider has a key |
 | `JUDGE_PROVIDER` | `auto` | `opencode`, `openrouter` or `auto` (OpenCode when its key is set) |
 | `OPENCODE_API_KEY` | empty | OpenCode Go key; the default backend |
@@ -80,6 +83,8 @@ A run costs about $0.03 of the allowance for 20 to 30 s of judge time, next to r
 The channel medium is a hard rule: the audio prompt always gets `AUDIO_STYLE`, even when the vibe does not mention it, and the image system message always pins `IMAGE_STYLE`. The vibe adds mood and references, not the medium.
 
 An empty environment variable is ignored, so to run locally use `ssh_host = ""` in `config.toml` instead of `SSH_HOST=`.
+
+The pipeline renders with Remotion by default. Before the GPU stages it checks `VIDEO_PROJECT`, `pnpm` and the overlays selected by `VIDEO_PARTICLES`; if something is missing the run fails there with the command to fix it. It never falls back to ffmpeg on its own. `VIDEO_RENDERER=ffmpeg` or `melodias video <dir>` is the explicit fast path.
 
 ## History
 

@@ -15,9 +15,15 @@ import {useAudioData, visualizeAudio} from '@remotion/media-utils';
 export type MelodiasVideoProps = {
   durationSec: number;
   channel: string;
+  particles?: 'both' | 'bokeh' | 'sparks';
 };
 
-export const MelodiasVideo: React.FC<MelodiasVideoProps> = ({channel}) => {
+export const MelodiasVideo: React.FC<MelodiasVideoProps> = ({
+  channel,
+  particles = 'both',
+}) => {
+  const showBokeh = particles !== 'sparks';
+  const showSparks = particles !== 'bokeh';
   const frame = useCurrentFrame();
   const {fps, durationInFrames} = useVideoConfig();
   const audioData = useAudioData(staticFile('current/audio.mp3'));
@@ -52,25 +58,29 @@ export const MelodiasVideo: React.FC<MelodiasVideoProps> = ({channel}) => {
         />
       </AbsoluteFill>
 
-      <AbsoluteFill style={{mixBlendMode: 'screen', opacity: 0.55}}>
-        <Loop durationInFrames={Math.round(45.42 * fps)}>
-          <OffthreadVideo
-            src={staticFile('overlays/particles-bokeh.mp4')}
-            muted
-            style={{width: '100%', height: '100%', objectFit: 'cover'}}
-          />
-        </Loop>
-      </AbsoluteFill>
+      {showBokeh ? (
+        <AbsoluteFill style={{mixBlendMode: 'screen', opacity: 0.55}}>
+          <Loop durationInFrames={Math.round(45.42 * fps)}>
+            <OffthreadVideo
+              src={staticFile('overlays/particles-bokeh.mp4')}
+              muted
+              style={{width: '100%', height: '100%', objectFit: 'cover'}}
+            />
+          </Loop>
+        </AbsoluteFill>
+      ) : null}
 
-      <AbsoluteFill style={{mixBlendMode: 'screen', opacity: 0.45}}>
-        <Loop durationInFrames={Math.round(49.47 * fps)}>
-          <OffthreadVideo
-            src={staticFile('overlays/particles-sparks.mp4')}
-            muted
-            style={{width: '100%', height: '100%', objectFit: 'cover'}}
-          />
-        </Loop>
-      </AbsoluteFill>
+      {showSparks ? (
+        <AbsoluteFill style={{mixBlendMode: 'screen', opacity: 0.45}}>
+          <Loop durationInFrames={Math.round(49.47 * fps)}>
+            <OffthreadVideo
+              src={staticFile('overlays/particles-sparks.mp4')}
+              muted
+              style={{width: '100%', height: '100%', objectFit: 'cover'}}
+            />
+          </Loop>
+        </AbsoluteFill>
+      ) : null}
 
       <AbsoluteFill
         style={{

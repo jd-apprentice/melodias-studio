@@ -15,6 +15,9 @@ fn reads_the_optional_fields() {
         candidates = 3
         score_rounds = 1
         audio_draft_sec = 60
+        video_renderer = "ffmpeg"
+        video_particles = "sparks"
+        video_project = "/tmp/video"
     "#;
     let file: FileConfig = toml::from_str(text).unwrap();
     assert_eq!(file.ssh_host.as_deref(), Some("user@10.0.0.5"));
@@ -29,5 +32,8 @@ fn reads_the_optional_fields() {
     assert_eq!(file.candidates, Some(3));
     assert_eq!(file.score_rounds, Some(1));
     assert_eq!(file.audio_draft_sec, Some(60));
+    assert_eq!(file.video_renderer.as_deref(), Some("ffmpeg"));
+    assert_eq!(file.video_particles.as_deref(), Some("sparks"));
+    assert_eq!(file.video_project, Some(PathBuf::from("/tmp/video")));
     assert_eq!(file.steps, None);
 }

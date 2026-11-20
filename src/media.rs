@@ -24,7 +24,7 @@ fn log_file() -> Option<std::fs::File> {
         .ok()
 }
 
-fn attach_output(cmd: &mut Command) {
+pub(crate) fn attach_output(cmd: &mut Command) {
     if let Some(file) = log_file()
         && let Ok(err) = file.try_clone()
     {

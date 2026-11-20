@@ -6,7 +6,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 
-use crate::{clients, config::Config, history, judge, media, retry, score};
+use crate::{clients, config::Config, history, judge, media, retry, score, video};
 
 pub const STAGES: [&str; 11] = [
     "Image prompt",
@@ -141,6 +141,7 @@ fn run(
         format!("audio seed {seed} · image seed {image_seed} · {count} candidates"),
     );
     media::preflight()?;
+    video::preflight(cfg)?;
 
     // The LLM writes the thumbnail prompt while it still owns the GPU.
     let mut image_prompt = retry::Prompt::new(
@@ -384,7 +385,13 @@ fn run(
     })?;
 
     let video = step(tx, 10, || {
-        let video = media::assemble_video(cfg, &final_image, &final_audio, &root)?;
+        let video::Rendered {
+            file: video,
+            renderer,
+            particles,
+        } = video::render(cfg, &final_image, &final_audio, &root, &mut |line| {
+            log(tx, line)
+        })?;
         let megabytes = std::fs::metadata(&video)
             .map(|meta| meta.len())
             .unwrap_or(0) as f64
@@ -454,6 +461,8 @@ fn run(
             "video": {
                 "file": video.display().to_string(),
                 "size": format!("{}x{}", cfg.video_width, cfg.video_height),
+                "renderer": renderer,
+                "particles": particles,
             },
             "retry": {
                 "rounds": rounds,

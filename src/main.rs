@@ -9,6 +9,7 @@ mod media;
 mod pipeline;
 mod retry;
 mod score;
+mod video;
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, IsTerminal, Write};
@@ -449,44 +450,25 @@ fn run_render(cfg: config::Config, args: &[String]) -> io::Result<()> {
             std::process::exit(2);
         }
     }
-    let project = std::env::current_dir()?.join("video");
-    if !project.join("node_modules").is_dir() {
-        eprintln!("the Remotion project is not installed; run: cd video && pnpm install");
-        std::process::exit(2);
-    }
-    let current = project.join("public").join("current");
-    std::fs::create_dir_all(&current)?;
-    std::fs::copy(&image, current.join("thumbnail.png"))?;
-    std::fs::copy(&audio, current.join("audio.mp3"))?;
-    let duration =
-        media::duration_secs(&audio).map_err(|error| io::Error::other(format!("{error:#}")))?;
-    let props = project.join("props.json");
-    std::fs::write(
-        &props,
-        serde_json::to_vec(&serde_json::json!({
-            "durationSec": duration,
-            "channel": "melodias8bit",
-        }))?,
-    )?;
+    std::fs::create_dir_all(dir.join("work"))?;
+    let temp = dir.join("work").join("video-remotion.mp4");
+    video::render_remotion(&cfg, &image, &audio, &temp, &mut |line| println!("{line}"))
+        .map_err(|error| io::Error::other(format!("{error:#}")))?;
     let output = dir.join("video.mp4");
     if output.is_file() {
         let _ = std::fs::copy(&output, dir.join("video-ffmpeg.mp4"));
     }
-    let status = std::process::Command::new("pnpm")
-        .current_dir(&project)
-        .args([
-            "exec",
-            "remotion",
-            "render",
-            "src/index.ts",
-            "MelodiasVideo",
-        ])
-        .arg(&output)
-        .arg(format!("--props={}", props.display()))
-        .arg("--concurrency=4")
-        .status()?;
-    if !status.success() {
-        return Err(io::Error::other("remotion render failed"));
+    std::fs::rename(&temp, &output)?;
+    let particles = video::particles_value(&cfg.video_particles)
+        .map_err(|error| io::Error::other(format!("{error:#}")))?;
+    let meta_path = dir.join("meta.json");
+    if let Ok(text) = std::fs::read_to_string(&meta_path)
+        && let Ok(mut meta) = serde_json::from_str::<serde_json::Value>(&text)
+    {
+        meta["video"]["renderer"] = serde_json::json!("remotion");
+        meta["video"]["particles"] = serde_json::json!(particles);
+        meta["video"]["file"] = serde_json::json!(output.display().to_string());
+        std::fs::write(&meta_path, serde_json::to_vec_pretty(&meta)?)?;
     }
     println!("video: {}", output.display());
     Ok(())
@@ -575,9 +557,15 @@ fn run_image(cfg: config::Config, args: &[String]) -> io::Result<()> {
 
     println!("image: {}", thumbnail.display());
     let audio = dir.join("audio.mp3");
-    let video = media::assemble_video(&cfg, &thumbnail, &audio, &dir)
-        .map_err(|error| io::Error::other(format!("{error:#}")))?;
-    println!("video: {}", video.display());
+    let rendered = video::render(&cfg, &thumbnail, &audio, &dir, &mut |line| {
+        println!("{line}")
+    })
+    .map_err(|error| io::Error::other(format!("{error:#}")))?;
+    meta["video"]["file"] = serde_json::json!(rendered.file.display().to_string());
+    meta["video"]["renderer"] = serde_json::json!(rendered.renderer);
+    meta["video"]["particles"] = serde_json::json!(rendered.particles);
+    std::fs::write(&meta_path, serde_json::to_vec_pretty(&meta)?)?;
+    println!("video: {}", rendered.file.display());
     Ok(())
 }
 

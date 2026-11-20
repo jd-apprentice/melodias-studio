@@ -41,6 +41,9 @@
 # height = 720
 # video_width = 1920
 # video_height = 1080
+# video_renderer = "remotion"   # remotion | ffmpeg; ffmpeg is explicit only
+# video_particles = "both"      # both | bokeh | sparks
+# video_project = "video"
 # image_steps = 20
 # image_seed = 42
 # candidates = 3

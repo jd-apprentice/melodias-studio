@@ -43,6 +43,12 @@ pub struct Config {
     pub height: u32,
     pub video_width: u32,
     pub video_height: u32,
+    /// `remotion` (default) or `ffmpeg`; ffmpeg is explicit only.
+    pub video_renderer: String,
+    /// `both` (default), `bokeh` or `sparks`.
+    pub video_particles: String,
+    /// Remotion project, relative to the working directory.
+    pub video_project: PathBuf,
     pub judge_enabled: bool,
     /// `auto`, `opencode` or `openrouter`.
     pub judge_provider: String,
@@ -145,6 +151,12 @@ impl Config {
             height: pick_parsed(env("HEIGHT"), file.height, 720),
             video_width: pick_parsed(env("VIDEO_WIDTH"), file.video_width, 1920),
             video_height: pick_parsed(env("VIDEO_HEIGHT"), file.video_height, 1080),
+            video_renderer: pick(env("VIDEO_RENDERER"), file.video_renderer, "remotion"),
+            video_particles: pick(env("VIDEO_PARTICLES"), file.video_particles, "both"),
+            video_project: env("VIDEO_PROJECT")
+                .map(PathBuf::from)
+                .or(file.video_project)
+                .unwrap_or_else(|| PathBuf::from("video")),
             // On by default: the judge itself is skipped when no key is set.
             judge_enabled: env("JUDGE_ENABLED")
                 .map(|value| parse_bool(&value))
@@ -267,6 +279,9 @@ struct FileConfig {
     height: Option<u32>,
     video_width: Option<u32>,
     video_height: Option<u32>,
+    video_renderer: Option<String>,
+    video_particles: Option<String>,
+    video_project: Option<PathBuf>,
     judge_enabled: Option<bool>,
     judge_provider: Option<String>,
     opencode_api_key: Option<String>,
