@@ -32,7 +32,7 @@ impl Config {
         Self {
             audio_url: env_or("AUDIO_URL", "http://192.168.88.38:8090"),
             audio_model: env_or("AUDIO_MODEL", "ace-step"),
-            sd_url: env_or("SD_URL", "http://192.168.88.38:8081"),
+            sd_url: env_or("SD_URL", "http://192.168.88.38:1234"),
             llm_url: env_or("LLM_URL", "http://192.168.88.38:8080"),
             llm_model: env_or("LLM_MODEL", "local"),
             ssh_host: env_or("SSH_HOST", "root@192.168.88.38"),

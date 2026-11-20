@@ -47,7 +47,7 @@ Everything is read from the environment, with defaults pointing at the VM:
 | --- | --- | --- |
 | `AUDIO_URL` | `http://192.168.88.38:8090` | `audiocpp_server` |
 | `AUDIO_MODEL` | `ace-step` | model id registered on the server |
-| `SD_URL` | `http://192.168.88.38:8081` | `sd-server` |
+| `SD_URL` | `http://192.168.88.38:1234` | `sd-server` |
 | `LLM_URL` | `http://192.168.88.38:8080` | `llama-server` |
 | `LLM_MODEL` | `local` | model name the server expects |
 | `SSH_HOST` | `root@192.168.88.38` | destination for the reference and lifecycle commands |
