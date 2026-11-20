@@ -2,16 +2,16 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use ratatui::layout::{Constraint, Layout};
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::Line;
-use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Paragraph, Wrap};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Padding, Paragraph, Wrap};
 use ratatui::{DefaultTerminal, Frame};
 
 use crate::config::Config;
 use crate::pipeline::{self, Msg, STAGES, State};
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Field {
     Url,
     Vibe,
@@ -27,6 +27,7 @@ struct App {
     rx: Option<Receiver<Msg>>,
     running: bool,
     summary: Option<String>,
+    tick: u64,
 }
 
 impl App {
@@ -41,6 +42,7 @@ impl App {
             rx: None,
             running: false,
             summary: None,
+            tick: 0,
         }
     }
 
@@ -106,6 +108,7 @@ pub fn run(terminal: &mut DefaultTerminal, cfg: Config) -> std::io::Result<()> {
     loop {
         terminal.draw(|frame| draw(frame, &app))?;
         app.drain();
+        app.tick = app.tick.wrapping_add(1);
         if event::poll(Duration::from_millis(100))?
             && let Event::Key(key) = event::read()?
         {
@@ -147,118 +150,296 @@ pub fn run(terminal: &mut DefaultTerminal, cfg: Config) -> std::io::Result<()> {
 }
 
 fn draw(frame: &mut Frame, app: &App) {
-    let [
-        url_area,
-        vibe_area,
-        stages_area,
-        gauge_area,
-        log_area,
-        status_area,
-    ] = Layout::vertical([
+    let [header_area, inputs_area, gauge_area, body_area, status_area] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(4),
         Constraint::Length(3),
-        Constraint::Length(3),
-        Constraint::Min(9),
-        Constraint::Length(3),
-        Constraint::Min(6),
+        Constraint::Min(8),
         Constraint::Length(1),
     ])
+    .spacing(1)
     .areas(frame.area());
 
-    let active = |field: &Field| {
-        if &app.field == field && !app.running {
-            Style::default().fg(Color::Cyan)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        }
+    let [url_area, vibe_area] =
+        Layout::horizontal([Constraint::Percentage(68), Constraint::Percentage(32)])
+            .spacing(1)
+            .areas(inputs_area);
+
+    draw_header(frame, app, header_area);
+    draw_input(frame, app, url_area, Field::Url, "YouTube URL");
+    draw_input(frame, app, vibe_area, Field::Vibe, "Vibe o concepto");
+    draw_gauge(frame, app, gauge_area);
+    draw_body(frame, app, body_area);
+    draw_status(frame, app, status_area);
+}
+
+fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
+    let line = Line::from(vec![
+        Span::styled(
+            " ♪ ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            "melodias-studio",
+            Style::default().add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("   {} · una P40 para tres servicios", app.cfg.ssh_host),
+            Style::default().fg(Color::DarkGray),
+        ),
+    ]);
+    frame.render_widget(Paragraph::new(line), area);
+}
+
+fn draw_input(frame: &mut Frame, app: &App, area: Rect, field: Field, title: &str) {
+    let active = app.field == field && !app.running;
+    let color = if active { Color::Cyan } else { Color::DarkGray };
+    let marker = if active { "▶ " } else { "  " };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .padding(Padding::horizontal(1))
+        .border_style(Style::default().fg(color))
+        .title(Span::styled(
+            format!("{marker}{title}"),
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ));
+    let text = match field {
+        Field::Url => app.url.as_str(),
+        Field::Vibe => app.vibe.as_str(),
     };
-
+    let mut spans = vec![Span::raw(text)];
+    if active {
+        let cursor = if app.tick % 4 < 2 { "▏" } else { " " };
+        spans.push(Span::styled(cursor, Style::default().fg(Color::Cyan)));
+    }
     frame.render_widget(
-        Paragraph::new(app.url.as_str())
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(" YouTube URL ")
-                    .border_style(active(&Field::Url)),
-            )
-            .wrap(Wrap { trim: true }),
-        url_area,
+        Paragraph::new(Line::from(spans))
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        area,
     );
+}
 
-    frame.render_widget(
-        Paragraph::new(app.vibe.as_str())
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(" Vibe / prompt del tema ")
-                    .border_style(active(&Field::Vibe)),
-            )
-            .wrap(Wrap { trim: true }),
-        vibe_area,
-    );
-
-    let items: Vec<ListItem> = STAGES
-        .iter()
-        .zip(&app.states)
-        .map(|(name, state)| {
-            let (mark, style) = match state {
-                State::Pending => ("  ", Style::default().fg(Color::DarkGray)),
-                State::Running => ("» ", Style::default().fg(Color::Yellow)),
-                State::Ok => ("✓ ", Style::default().fg(Color::Green)),
-                State::Failed => ("✗ ", Style::default().fg(Color::Red)),
-            };
-            ListItem::new(Line::from(format!("{mark}{name}"))).style(style)
-        })
-        .collect();
-    frame.render_widget(
-        List::new(items).block(Block::default().borders(Borders::ALL).title(" Etapas ")),
-        stages_area,
-    );
-
+fn draw_gauge(frame: &mut Frame, app: &App, area: Rect) {
+    let total = STAGES.len();
     let ok = app
         .states
         .iter()
         .filter(|state| **state == State::Ok)
         .count();
-    let total = STAGES.len();
-    let running = app
+    let failed = app.states.contains(&State::Failed);
+    let current = app
         .states
         .iter()
         .position(|state| *state == State::Running)
-        .and_then(|idx| STAGES.get(idx));
-    let label = match running {
-        Some(name) => format!("{ok}/{total} · {name}"),
+        .and_then(|idx| STAGES.get(idx).copied());
+    let color = if failed {
+        Color::Red
+    } else if ok == total {
+        Color::Green
+    } else if current.is_some() {
+        Color::Yellow
+    } else {
+        Color::Cyan
+    };
+    let percent = ok * 100 / total;
+    let label = match current {
+        Some(name) => format!("{ok}/{total} · {percent}% · {name}"),
         None if ok == total => format!("{ok}/{total} · completo"),
-        None => format!("{ok}/{total}"),
+        None => format!("{ok}/{total} · {percent}%"),
     };
     frame.render_widget(
         Gauge::default()
-            .block(Block::default().borders(Borders::ALL).title(" Progreso "))
-            .gauge_style(Style::default().fg(Color::Cyan))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Progreso ")
+                    .border_style(Style::default().fg(Color::DarkGray)),
+            )
+            .gauge_style(Style::default().fg(color))
             .ratio(ok as f64 / total as f64)
             .label(label),
-        gauge_area,
+        area,
     );
+}
 
-    let height = log_area.height.saturating_sub(2) as usize;
-    let start = app.logs.len().saturating_sub(height);
-    let text: Vec<Line> = app.logs[start..]
+fn draw_body(frame: &mut Frame, app: &App, area: Rect) {
+    let [stages_area, log_area] = Layout::horizontal([Constraint::Length(28), Constraint::Min(20)])
+        .spacing(1)
+        .areas(area);
+    draw_stages(frame, app, stages_area);
+    draw_log(frame, app, log_area);
+}
+
+fn draw_stages(frame: &mut Frame, app: &App, area: Rect) {
+    let spinner = ["◐", "◓", "◑", "◒"][(app.tick / 2 % 4) as usize];
+    let ok = app
+        .states
         .iter()
-        .map(|line| Line::from(line.as_str()))
+        .filter(|state| **state == State::Ok)
+        .count();
+    let items: Vec<ListItem> = STAGES
+        .iter()
+        .zip(&app.states)
+        .enumerate()
+        .map(|(idx, (name, state))| {
+            let (mark, color, bold) = match state {
+                State::Pending => ("○", Color::DarkGray, false),
+                State::Running => (spinner, Color::Yellow, true),
+                State::Ok => ("✔", Color::Green, false),
+                State::Failed => ("✖", Color::Red, true),
+            };
+            let mut style = Style::default().fg(color);
+            if bold {
+                style = style.add_modifier(Modifier::BOLD);
+            }
+            ListItem::new(Line::from(vec![
+                Span::styled(format!("{mark} "), style),
+                Span::styled(
+                    format!("{:02} ", idx + 1),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(*name, style),
+            ]))
+        })
         .collect();
     frame.render_widget(
-        Paragraph::new(text)
-            .block(Block::default().borders(Borders::ALL).title(" Log "))
-            .wrap(Wrap { trim: false }),
-        log_area,
+        List::new(items).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(format!(" Etapas · {ok}/{} ", STAGES.len()))
+                .border_style(Style::default().fg(Color::DarkGray)),
+        ),
+        area,
     );
+}
 
-    let status = if let Some(summary) = &app.summary {
-        Line::from(summary.as_str()).style(Style::default().fg(Color::Green))
-    } else if app.running {
-        Line::from("generando…  q para salir al terminar").style(Style::default().fg(Color::Yellow))
+fn draw_log(frame: &mut Frame, app: &App, area: Rect) {
+    let height = area.height.saturating_sub(2) as usize;
+    let start = app.logs.len().saturating_sub(height);
+    let lines: Vec<Line> = if app.logs.is_empty() {
+        vec![Line::from(Span::styled(
+            "Sin actividad todavía. Enter arranca la corrida.",
+            Style::default().fg(Color::DarkGray),
+        ))]
     } else {
-        Line::from("Tab cambia de campo · Enter avanza/genera · q sale")
-            .style(Style::default().add_modifier(Modifier::DIM))
+        app.logs[start..]
+            .iter()
+            .map(|text| Line::from(Span::styled(text.as_str(), log_style(text))))
+            .collect()
     };
-    frame.render_widget(Paragraph::new(status), status_area);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Log ")
+                    .border_style(Style::default().fg(Color::DarkGray)),
+            )
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+fn log_style(text: &str) -> Style {
+    let lower = text.to_lowercase();
+    if lower.contains("falló") || lower.contains("failed") {
+        Style::default().fg(Color::Red)
+    } else if lower.starts_with("aviso") {
+        Style::default().fg(Color::Yellow)
+    } else if lower.starts_with("miniatura") || lower.starts_with("loop") {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default()
+    }
+}
+
+fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
+    let line = if let Some(summary) = &app.summary {
+        let color = if summary.starts_with("falló") {
+            Color::Red
+        } else {
+            Color::Green
+        };
+        Line::from(vec![
+            Span::styled(" ● ", Style::default().fg(color)),
+            Span::styled(
+                summary.as_str(),
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
+            ),
+        ])
+    } else if app.running {
+        Line::from(vec![
+            Span::styled(" ◐ ", Style::default().fg(Color::Yellow)),
+            Span::styled(
+                "generando",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                " · la etapa en curso está marcada arriba",
+                Style::default().fg(Color::DarkGray),
+            ),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled(" Tab", key_style()),
+            Span::styled(" campo  ", hint_style()),
+            Span::styled(" Enter", key_style()),
+            Span::styled(" avanzar / generar  ", hint_style()),
+            Span::styled(" q", key_style()),
+            Span::styled(" salir", hint_style()),
+        ])
+    };
+    frame.render_widget(Paragraph::new(line), area);
+}
+
+fn key_style() -> Style {
+    Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::BOLD)
+}
+
+fn hint_style() -> Style {
+    Style::default().fg(Color::DarkGray)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    #[test]
+    fn draws_without_leaving_the_terminal() {
+        let mut app = App::new(Config::from_env());
+        app.url = "https://www.youtube.com/watch?v=AeA34N7d-rk&list=WL&index=1".to_string();
+        app.vibe = "epic 8-bit orchestral finale".to_string();
+        app.states[0] = State::Ok;
+        app.states[1] = State::Ok;
+        app.states[2] = State::Running;
+        app.logs
+            .push("prompt imagen: pixel art castle at sunset".to_string());
+        app.logs
+            .push("miniatura: output/destiny/thumbnail.png".to_string());
+
+        for (width, height) in [(80, 24), (120, 36)] {
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal.draw(|frame| draw(frame, &app)).unwrap();
+            if std::env::var_os("PRINT_TUI").is_some() {
+                let buffer = terminal.backend().buffer();
+                println!("--- {width}x{height} ---");
+                for y in 0..height {
+                    let mut line = String::new();
+                    for x in 0..width {
+                        line.push_str(buffer[(x, y)].symbol());
+                    }
+                    println!("{line}");
+                }
+            }
+        }
+    }
 }
