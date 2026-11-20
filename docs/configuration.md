@@ -124,6 +124,8 @@ scripts/fetch-pixabay.sh --dry-run --concept battle --count 5
 
 The default concepts are `battle` (`pixel art knight`), `forest` (`pixel art forest background`), `castle` (`pixel art castle`) and `jrpg` (`pixel art game`). `--out` falls back to `IMAGE_REFERENCES`, then `image_references` in `config.toml`, then `~/.local/share/melodias-studio/references`. Images are the 640 px Pixabay rendition, at least 400 px wide (`--min-width`), saved as `<concept>/pixabay-<id>.<ext>`.
 
+`--tag TEXT` keeps only hits whose tags contain TEXT (repeatable, any match). Pixabay tags are noisy, so `--tag pixel` drops some stock photos but is not a quality filter; review the folder before relying on it. Pixabay is a stock site, so expect single objects and UI icons next to scenes, and check for recognizable characters or brands before using a hit.
+
 `scripts/import-references.sh` imports what you downloaded by hand, including `.zip` packs:
 
 ```bash

@@ -23,6 +23,8 @@
 #                      and required for a concept without a default query
 #   --count N          images per concept, default 60, capped at 500
 #   --min-width N      skip images narrower than N pixels, default 400
+#   --tag TEXT         keep only images whose tags contain TEXT (repeatable,
+#                      case-insensitive); --tag pixel drops most stock photos
 #   --dry-run          list what would be downloaded, write nothing
 #
 # Every accepted image is recorded in $out/sources.jsonl with its id, page,
@@ -44,6 +46,7 @@ count=60
 min_width=400
 dry_run=0
 concepts=()
+tags_filter=()
 
 declare -A default_query=(
     [battle]="pixel art knight"
@@ -72,6 +75,7 @@ while [ $# -gt 0 ]; do
         --query) custom_query=${2:-}; shift 2 ;;
         --count) count=${2:-}; shift 2 ;;
         --min-width) min_width=${2:-}; shift 2 ;;
+        --tag) tags_filter+=("${2:-}"); shift 2 ;;
         --dry-run) dry_run=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) die "unknown option: $1" ;;
@@ -82,6 +86,9 @@ done
 [ -n "$min_width" ] || die "missing value for --min-width"
 [[ "$count" =~ ^[0-9]+$ ]] || die "--count must be a number"
 [[ "$min_width" =~ ^[0-9]+$ ]] || die "--min-width must be a number"
+for tag in "${tags_filter[@]}"; do
+    [ -n "$tag" ] || die "empty --tag"
+done
 
 for bin in curl jq; do
     command -v "$bin" >/dev/null || die "missing $bin on PATH"
@@ -192,6 +199,7 @@ api_get() {
 declare -A added_by_concept=()
 declare -A skipped_by_concept=()
 declare -A failed_by_concept=()
+declare -A filtered_by_concept=()
 total_added=0
 total_skipped=0
 total_planned=0
@@ -202,6 +210,7 @@ for concept in "${concepts[@]}"; do
     added=0
     skipped=0
     failed=0
+    filtered=0
     for (( page = 1; page <= max_pages; page++ )); do
         if [ "$added" -ge "$count" ]; then
             break
@@ -227,6 +236,20 @@ for concept in "${concepts[@]}"; do
             [[ "${width:-}" =~ ^[0-9]+$ ]] || width=0
             if [ "${width:-0}" -lt "$min_width" ]; then
                 continue
+            fi
+            if [ ${#tags_filter[@]} -gt 0 ]; then
+                tags_lc=${tags,,}
+                matched=0
+                for tag in "${tags_filter[@]}"; do
+                    if [[ "$tags_lc" == *"${tag,,}"* ]]; then
+                        matched=1
+                        break
+                    fi
+                done
+                if [ "$matched" -eq 0 ]; then
+                    filtered=$((filtered + 1))
+                    continue
+                fi
             fi
             image_url=$web
             [ -n "$image_url" ] || image_url=$large
@@ -299,13 +322,15 @@ for concept in "${concepts[@]}"; do
     added_by_concept[$concept]=$added
     skipped_by_concept[$concept]=$skipped
     failed_by_concept[$concept]=$failed
+    filtered_by_concept[$concept]=$filtered
     total_skipped=$((total_skipped + skipped))
 done
 
 echo "== summary"
 for concept in "${concepts[@]}"; do
-    printf '   %-12s %3s new %3s skipped %3s failed\n' \
-        "$concept" "${added_by_concept[$concept]:-0}" "${skipped_by_concept[$concept]:-0}" "${failed_by_concept[$concept]:-0}"
+    printf '   %-12s %3s new %3s skipped %3s filtered %3s failed\n' \
+        "$concept" "${added_by_concept[$concept]:-0}" "${skipped_by_concept[$concept]:-0}" \
+        "${filtered_by_concept[$concept]:-0}" "${failed_by_concept[$concept]:-0}"
 done
 if [ "$dry_run" -eq 1 ]; then
     echo "   dry run: nothing written to $out"
