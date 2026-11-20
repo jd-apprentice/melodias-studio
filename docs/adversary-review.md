@@ -11,6 +11,7 @@ The proposal is to generate a small pool of candidates per modality, let local c
 ## Goals
 
 - Improve the average quality without a human in the loop.
+- Stay within a 30-minute budget per video, assembly included.
 - Bound the review with an explicit round limit and a score threshold.
 - Keep the local-only mode working: the cloud judge is optional.
 - Record every candidate, score and decision in a manifest.
@@ -121,6 +122,7 @@ The final video is the chosen still, an audio-reactive effect and the mastered t
 - Canvas 1920x1080, H.264 video and AAC audio.
 - The still gets a slow zoom or parallax; no cuts, since the image is static.
 - A low band at the bottom shows a waveform or spectrum driven by the track.
+- A handful of floating particles or small balls drift across the frame, gently reacting to the music.
 - Title and channel overlays come from the source metadata and the channel config.
 - Video fades in and out with the audio.
 - The assembly agent only chooses a preset (`minimal`, `pixel`, `retro`) from the vibe. The rendering itself is a deterministic ffmpeg graph.
@@ -164,21 +166,24 @@ Why each choice:
 - **Keep the model loaded across the pool.** One load per modality, all candidates inside it.
 - **Turbo for audio drafts is optional.** ACE-Step Turbo caps at 8 steps but requires switching the DiT and reloading, so it only pays off if the reload is cheaper than the saved steps. Measure before adopting it.
 
+The target budget is 30 minutes per video, assembly included. The default N=2 with 20-step images, 60 s audio drafts and one full take fits it.
+
 Measured wall time, warm model:
 
 | Step | Today | N=2 | N=3 |
 | --- | --- | --- | --- |
 | Image pool | ~5 min | ~10 min | ~15 min |
 | Audio pool | ~14 min | ~4 min + ~14 min final | ~6 min + ~14 min final |
-| Total | ~20 min | ~28 min | ~35 min |
+| Assembly | none | ~1 min | ~1 min |
+| Total | ~20 min | ~29 min | ~36 min |
 
-For comparison, three full audio candidates would be about 42 minutes. The saving comes from the short audio drafts, not from the images.
+N=2 fits the budget. N=3 goes over and stays opt-in. Three full audio candidates would be about 42 minutes; the saving comes from the short audio drafts.
 
 One quality question remains:
 
 - Does a 60 s draft rank the same take that a full 210 s run would produce?
 
-If the answer is no, keep the full parameters for audio and accept the longer round.
+If the answer is no, the budget cannot afford two full takes. The fallback is one full take with no audio pool, or an explicitly longer opt-in run.
 
 ## Configuration sketch
 
