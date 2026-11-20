@@ -42,7 +42,12 @@ pub struct Config {
     pub video_width: u32,
     pub video_height: u32,
     pub judge_enabled: bool,
+    /// `auto`, `opencode` or `openrouter`.
+    pub judge_provider: String,
+    pub opencode_api_key: String,
     pub openrouter_api_key: String,
+    /// Model id for the OpenCode Go backend (Gemini native API).
+    pub judge_model: String,
     pub judge_omni_model: String,
     pub judge_reasoner_model: String,
     pub judge_image_px: u32,
@@ -132,13 +137,19 @@ impl Config {
             height: pick_parsed(env("HEIGHT"), file.height, 720),
             video_width: pick_parsed(env("VIDEO_WIDTH"), file.video_width, 1920),
             video_height: pick_parsed(env("VIDEO_HEIGHT"), file.video_height, 1080),
+            // On by default: the judge itself is skipped when no key is set.
             judge_enabled: env("JUDGE_ENABLED")
                 .map(|value| parse_bool(&value))
                 .or(file.judge_enabled)
-                .unwrap_or(false),
+                .unwrap_or(true),
+            judge_provider: pick(env("JUDGE_PROVIDER"), file.judge_provider, "auto"),
+            opencode_api_key: env("OPENCODE_API_KEY")
+                .or(file.opencode_api_key)
+                .unwrap_or_default(),
             openrouter_api_key: env("OPENROUTER_API_KEY")
                 .or(file.openrouter_api_key)
                 .unwrap_or_default(),
+            judge_model: pick(env("JUDGE_MODEL"), file.judge_model, "gemini-4-argon"),
             judge_omni_model: pick(
                 env("JUDGE_OMNI_MODEL"),
                 file.judge_omni_model,
@@ -242,7 +253,10 @@ struct FileConfig {
     video_width: Option<u32>,
     video_height: Option<u32>,
     judge_enabled: Option<bool>,
+    judge_provider: Option<String>,
+    opencode_api_key: Option<String>,
     openrouter_api_key: Option<String>,
+    judge_model: Option<String>,
     judge_omni_model: Option<String>,
     judge_reasoner_model: Option<String>,
     judge_image_px: Option<u32>,

@@ -48,16 +48,23 @@ The video is the chosen still with a slow zoom, glowing pixel particles, the aud
 
 ### Judge
 
-When the judge is enabled, the run sends the three thumbnails and three 15 s clips to OpenRouter before the review. The review screen opens with the suggested image and audio preselected and a yellow line with the score and reason. Press `Enter` to accept, or pick another pair.
+Before the review, the run sends the three thumbnails and three 15 s clips to a multimodal model and preselects the best pair. The review screen opens with that image and audio selected and a yellow line with the score and reason. Press `Enter` to accept, or pick another pair.
+
+The default backend is OpenCode Go with `gemini-4-argon`, which sees the images and hears the clips in a single call:
+
+```bash
+export OPENCODE_API_KEY="..."   # the key from OpenCode Console › Go
+melodias
+```
+
+With `OPENCODE_API_KEY` absent it uses OpenRouter instead, but OpenRouter requires at least $0.50 in balance for audio inputs, even on the free omni model:
 
 ```bash
 export OPENROUTER_API_KEY="sk-or-..."
-JUDGE_ENABLED=true melodias
+JUDGE_PROVIDER=openrouter melodias
 ```
 
-OpenRouter requires at least $0.50 in balance for audio inputs, even on the free omni model. If the judge returns a 402 about audio, add credit at `openrouter.ai/settings/credits`; image-only requests do not need it.
-
-The key can also live in `~/.config/melodias-studio/config.toml`. If it is missing, the judge is skipped and the manual review still works.
+The keys can also live in `~/.config/melodias-studio/config.toml`. If neither is set, the judge is skipped and the manual review still works. `JUDGE_ENABLED=false` turns it off explicitly.
 
 To review a finished run without regenerating anything:
 

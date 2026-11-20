@@ -157,8 +157,10 @@ fn run_judge(cfg: config::Config, args: &[String]) -> io::Result<()> {
         eprintln!("usage: melodias judge <output-dir>");
         std::process::exit(2);
     };
-    if cfg.openrouter_api_key.trim().is_empty() {
-        eprintln!("OPENROUTER_API_KEY is empty");
+    if !judge::enabled(&cfg) {
+        eprintln!(
+            "the judge has no API key: set OPENCODE_API_KEY (preferred) or OPENROUTER_API_KEY"
+        );
         std::process::exit(2);
     }
     let requested = PathBuf::from(target);

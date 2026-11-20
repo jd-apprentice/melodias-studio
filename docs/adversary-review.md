@@ -101,7 +101,20 @@ Merging is a later experiment: choose the best intro, body and outro only when t
 
 ## Cloud judge
 
-Optional and off by default. It replaces the manual pick with a two-stage review over compressed evidence, so the request stays small and cheap.
+Optional. It runs when a provider key is present and replaces the manual pick with a review over compressed evidence, so the request stays small and cheap.
+
+### Default backend: OpenCode Go with Gemini 4 Argon
+
+`gemini-4-argon` is part of the OpenCode Go plan and accepts images and audio in the same native `generateContent` request (`https://opencode.ai/inference/go/google/v1beta`). One call sees the thumbnails, hears the clips and returns the whole verdict, so the two-stage split below is not needed:
+
+- Request: system brief, 768 px JPEGs, 15 s mono MP3s, `responseMimeType: application/json`.
+- Cost: about 6.4k input tokens and 0.02 USD of list cost per run, drawn from the Go monthly allowance. Roughly 20 s of wall time.
+- Validation: on the first real run it ranked the repaired thumbnail (natural green eyes) first and picked the strongest clip, which matches the manual correction.
+- The gateway requires `x-opencode-session` and an explicit user agent, or it answers 400.
+
+The key is `OPENCODE_API_KEY`. `JUDGE_PROVIDER=auto` picks this backend when the key is set and falls back to OpenRouter otherwise.
+
+### Alternative backend: OpenRouter, two stages
 
 ### Perception: the omni model
 
@@ -131,7 +144,7 @@ The omni model is the part that actually sees the eyes, the palette and the comp
 
 The Ultra is the arbiter, not the perception layer. It never sees the raw media.
 
-The judge is implemented in `src/judge.rs`. It runs before the review, writes `work/judge/verdict.json`, and returns a suggestion that preselects the TUI review. Without `OPENROUTER_API_KEY` the judge is skipped and the manual pick still works.
+The judge is implemented in `src/judge.rs`. It runs before the review, writes `work/judge/verdict.json` (provider, model, token usage, both reports and the selection), and returns a suggestion that preselects the TUI review. Without a provider key the judge is skipped and the manual pick still works.
 
 ### Decider
 
@@ -237,7 +250,10 @@ JUDGE_ENABLED=false
 JUDGE_PERCEPTION_MODEL=nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
 JUDGE_REASONER_MODEL=nvidia/nemotron-3-ultra-550b-a55b:free
 JUDGE_DECIDER_MODEL=
+OPENCODE_API_KEY=
 OPENROUTER_API_KEY=
+JUDGE_PROVIDER=auto
+JUDGE_MODEL=gemini-4-argon
 JUDGE_MAX_CALLS=4
 JUDGE_IMAGE_MAX_PX=768
 JUDGE_AUDIO_SEC=15
@@ -265,6 +281,8 @@ The same keys belong in `config.toml` once the feature exists. Image seeds and s
 - The Ultra judge is blind and deaf by design; if the omni model is unavailable, there is no perception layer.
 - Rate limits on free models. Cap the calls per run and fail-open.
 - OpenRouter charges the audio input path with a $0.50 minimum balance even on a free model. Images work without balance; audio is the one that needs credit.
+- OpenCode Go is sold for coding-agent traffic, and this judge is media review. It is the user's own subscription and the volumes are tiny, but it is not the advertised use case.
+- The Gemini request carries 4 images and 3 clips at once, around 870 KB of base64. It works today; a larger candidate pool would need chunking or a smaller audio bitrate.
 - Privacy: images and clips leave the machine. Keep the judge opt-in and never send the source URL.
 - Cost and time grow linearly with the candidates, and Remotion adds about 12 minutes on top.
 - Judge reliability: strict schema, one revision, and fail-open to the local pick.

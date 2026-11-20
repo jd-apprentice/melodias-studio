@@ -31,10 +31,13 @@ cp config.example.toml ~/.config/melodias-studio/config.toml
 | `SAMPLER` | `heun` | `euler` or `heun` |
 | `WIDTH` / `HEIGHT` | `1280` / `720` | thumbnail size |
 | `VIDEO_WIDTH` / `VIDEO_HEIGHT` | `1920` / `1080` | final video canvas |
-| `JUDGE_ENABLED` | `false` | sends the candidates to the OpenRouter judge |
-| `OPENROUTER_API_KEY` | empty | required for the judge; export it in the shell that runs `melodias` |
-| `JUDGE_OMNI_MODEL` | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` | sees images and hears clips |
-| `JUDGE_REASONER_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b:free` | text-only final choice |
+| `JUDGE_ENABLED` | `true` | runs the judge when the provider has a key |
+| `JUDGE_PROVIDER` | `auto` | `opencode`, `openrouter` or `auto` (OpenCode when its key is set) |
+| `OPENCODE_API_KEY` | empty | OpenCode Go key; the default backend |
+| `OPENROUTER_API_KEY` | empty | alternative backend; export it in the shell that runs `melodias` |
+| `JUDGE_MODEL` | `gemini-4-argon` | OpenCode Go model, native Gemini API |
+| `JUDGE_OMNI_MODEL` | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` | OpenRouter perception model |
+| `JUDGE_REASONER_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b:free` | OpenRouter text-only final choice |
 | `JUDGE_IMAGE_PX` | `768` | JPEG size sent to the judge |
 | `JUDGE_AUDIO_SEC` | `15` | clip length sent to the judge |
 | `JUDGE_TIMEOUT_SEC` | `300` | per-call timeout |
@@ -49,11 +52,26 @@ cp config.example.toml ~/.config/melodias-studio/config.toml
 | `FADE_OUT_SEC` | `3.0` | master fade-out |
 | `LOUDNESS_LUFS` | `-15` | master loudness target |
 
-The judge is optional. OpenRouter requires at least **$0.50 of balance for audio inputs**, even on a free model; image-only requests work without balance. Add credit at `openrouter.ai/settings/credits` if you want the judge to hear the clips.
+The judge is optional: it runs when `JUDGE_ENABLED` is not `false` and the selected provider has a key. It compresses the candidates to 768 px JPEGs and 15 s mono clips, sends them to a model that can see and hear, and preselects the best pair in the review; `Enter` accepts it. If the key is missing, the API fails or the JSON is invalid, the run falls back to the manual pick and logs it.
 
-With `JUDGE_ENABLED=true` and `OPENROUTER_API_KEY` set, the run compresses the candidates to 768 px JPEGs and 15 s mono clips, sends them to the omni model, and asks the reasoning model for the final pair. The review screen opens with the judge's suggestion preselected; `Enter` accepts it. If the key is missing, the API fails or the JSON is invalid, the run falls back to the manual pick and logs it.
+`JUDGE_PROVIDER=auto` uses OpenCode Go when `OPENCODE_API_KEY` is set and OpenRouter otherwise. The OpenCode backend is a single `generateContent` call to `gemini-4-argon`, which accepts images and MP3 in the same request (about 20 s and $0.019 of list cost per run, drawn from the Go monthly allowance). The OpenRouter backend is two stages: the free omni model perceives, the free text model decides. OpenRouter requires at least **$0.50 of balance for audio inputs**, even on a free model; image-only requests work without balance.
 
-The key is read from the environment of the process that runs `melodias` (or from `openrouter_api_key` in this file). It does not belong in the `video/` Remotion project, which only renders local assets.
+Keys are read from the environment of the process that runs `melodias` (or from `opencode_api_key` / `openrouter_api_key` in this file). They do not belong in the `video/` Remotion project, which only renders local assets.
+
+#### What the judge costs
+
+Measured on real runs with `gemini-4-argon`; the gateway reports the debit in `usage.opencode.allowance`, and `work/judge/verdict.json` stores it:
+
+| Pool | Input tokens | Output | Allowance | List price | Time |
+| --- | --- | --- | --- | --- | --- |
+| 3 images + 3 clips | 5,303 (3,300 image, 1,353 audio, 650 text) | 517 | $0.0316 | $0.0158 | ~30 s |
+| 4 images + 3 clips | 6,384 | 632 | $0.0382 | $0.0191 | ~20 s |
+
+Each extra image adds about 1,100 input tokens and one row per clip in the verdict; each extra 15 s clip adds about 450. The debit follows `(650 + 1100·images + 451·clips) × $4/M + (175 + 38·images·clips) × $20/M`.
+
+Go includes $30 of Argon usage per month ($120 on Go Plus), so the default 3 + 3 pool is about 950 runs per month, 190 per five-hour window and 475 per week. Those caps are shared with every other Go model, so a month of daily coding spends more than the judge. The advertised list price is half the debit until November 30, 2026; from December 1 the two match, and the debit is the number that decides when requests start failing.
+
+A run costs about $0.03 of the allowance for 20 to 30 s of judge time, next to roughly 36 minutes of GPU work.
 
 The channel medium is a hard rule: the audio prompt always gets `AUDIO_STYLE`, even when the vibe does not mention it, and the image system message always pins `IMAGE_STYLE`. The vibe adds mood and references, not the medium.
 

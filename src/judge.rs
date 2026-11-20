@@ -1,6 +1,6 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use base64::Engine;
@@ -10,7 +10,8 @@ use crate::config::Config;
 use crate::media;
 use crate::pipeline::Candidate;
 
-const ENDPOINT: &str = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_ENDPOINT: &str = "https://openrouter.ai/api/v1/chat/completions";
+const OPENCODE_BASE: &str = "https://opencode.ai/inference/go/google/v1beta";
 
 const SYSTEM: &str = "You are the reviewer for an 8-bit YouTube channel. The channel publishes \
 original instrumental chiptune and pixel-art thumbnails. Judge only inside that brief. Return \
@@ -34,8 +35,59 @@ impl Verdict {
     }
 }
 
+/// The two backends are not interchangeable in shape: OpenCode Go exposes
+/// Gemini's native `generateContent` and takes inline bytes, while OpenRouter
+/// speaks the OpenAI chat format and takes data URLs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Provider {
+    OpenCode,
+    OpenRouter,
+}
+
+impl Provider {
+    fn label(self) -> &'static str {
+        match self {
+            Provider::OpenCode => "opencode",
+            Provider::OpenRouter => "openrouter",
+        }
+    }
+}
+
+fn provider(cfg: &Config) -> Provider {
+    resolve(&cfg.judge_provider, !cfg.opencode_api_key.trim().is_empty())
+}
+
+fn resolve(choice: &str, has_opencode_key: bool) -> Provider {
+    match choice.trim().to_ascii_lowercase().as_str() {
+        "opencode" => Provider::OpenCode,
+        "openrouter" => Provider::OpenRouter,
+        // Auto: prefer the subscription that is actually configured.
+        _ if has_opencode_key => Provider::OpenCode,
+        _ => Provider::OpenRouter,
+    }
+}
+
+fn api_key(cfg: &Config) -> &str {
+    match provider(cfg) {
+        Provider::OpenCode => cfg.opencode_api_key.trim(),
+        Provider::OpenRouter => cfg.openrouter_api_key.trim(),
+    }
+}
+
+fn model(cfg: &Config) -> String {
+    match provider(cfg) {
+        Provider::OpenCode => cfg.judge_model.clone(),
+        Provider::OpenRouter => cfg.judge_omni_model.clone(),
+    }
+}
+
 pub fn enabled(cfg: &Config) -> bool {
-    cfg.judge_enabled && !cfg.openrouter_api_key.trim().is_empty()
+    cfg.judge_enabled && !api_key(cfg).is_empty()
+}
+
+/// Human-readable description of the active backend, for the run log.
+pub fn describe(cfg: &Config) -> String {
+    format!("{} · {}", provider(cfg).label(), model(cfg))
 }
 
 /// Sends compressed evidence to the perception model, then asks the text judge
@@ -49,55 +101,31 @@ pub fn decide(
 ) -> Result<Verdict> {
     let dir = work.join("judge");
     std::fs::create_dir_all(&dir).context("creating the judge directory")?;
+    let evidence = evidence(cfg, images, audios, &dir)?;
 
-    let mut content = vec![text(format!(
-        "Brief: {vibe}\n\n\
-         The channel publishes original 8-bit instrumental music and pixel-art thumbnails. \
-         The candidates must be instrumental, 8-bit, 16:9, with no text or watermark. \
-         You will receive {} images and {} audio clips, labeled in order. \
-         Score every image for adherence to the brief and channel style: composition, palette, \
-         readability at thumbnail size, natural eyes, no text. \
-         Score every audio clip for instrumental quality, energy, intro and outro, no vocals. \
-         Score the mood coherence of every image/audio pair. \
-         Return exactly this JSON shape:\n\
-         {{\"images\":[{{\"index\":1,\"score\":0,\"reason\":\"\"}}],\
-         \"audios\":[{{\"index\":1,\"score\":0,\"reason\":\"\"}}],\
-         \"pairs\":[{{\"image\":1,\"audio\":1,\"coherence\":0,\"reason\":\"\"}}],\
-         \"best\":{{\"image\":1,\"audio\":1,\"score\":0}},\"reason\":\"\"}}",
-        images.len(),
-        audios.len()
-    ))];
-
-    for (index, candidate) in images.iter().enumerate() {
-        content.push(text(format!("Image {}", index + 1)));
-        content.push(json!({
-            "type": "image_url",
-            "image_url": { "url": image_data_url(cfg, candidate, &dir, index)? }
-        }));
-    }
-    for (index, candidate) in audios.iter().enumerate() {
-        content.push(text(format!("Audio {}", index + 1)));
-        content.push(json!({
-            "type": "input_audio",
-            "input_audio": {
-                "data": audio_base64(cfg, candidate, &dir, index)?,
-                "format": "mp3"
-            }
-        }));
-    }
-
-    let omni = chat(cfg, &cfg.judge_omni_model, content)?;
-    let judge_prompt = format!(
-        "Brief: {vibe}\n\n\
-         A perception model saw the images and heard the clips. Its report:\n{omni}\n\n\
-         You are the final judge. Choose the image and the audio that make the best pair for the \
-         channel, balancing quality and mood coherence. Return exactly this JSON:\n\
-         {{\"verdict\":\"approve\",\"image\":1,\"audio\":1,\"score\":0,\
-         \"must_fix\":[],\"nice_to_have\":[],\"reason\":\"\"}}"
-    );
-    let judge = match chat(cfg, &cfg.judge_reasoner_model, vec![text(judge_prompt)]) {
-        Ok(value) => value,
-        Err(_) => Value::Null,
+    let (omni, judge, usage) = match provider(cfg) {
+        Provider::OpenCode => {
+            let (omni, usage) = generate(cfg, &evidence, vibe)?;
+            (omni, Value::Null, usage)
+        }
+        Provider::OpenRouter => {
+            let omni = chat(
+                cfg,
+                &cfg.judge_omni_model,
+                openrouter_content(&evidence, vibe),
+            )?;
+            let judge_prompt = format!(
+                "Brief: {vibe}\n\n\
+                 A perception model saw the images and heard the clips. Its report:\n{omni}\n\n\
+                 You are the final judge. Choose the image and the audio that make the best pair \
+                 for the channel, balancing quality and mood coherence. Return exactly this JSON:\n\
+                 {{\"verdict\":\"approve\",\"image\":1,\"audio\":1,\"score\":0,\
+                 \"must_fix\":[],\"nice_to_have\":[],\"reason\":\"\"}}"
+            );
+            let judge = chat(cfg, &cfg.judge_reasoner_model, vec![text(judge_prompt)])
+                .unwrap_or(Value::Null);
+            (omni, judge, Value::Null)
+        }
     };
 
     let image = pick_index(&judge["image"], images.len())
@@ -120,6 +148,9 @@ pub fn decide(
     std::fs::write(
         dir.join("verdict.json"),
         serde_json::to_vec_pretty(&json!({
+            "provider": provider(cfg).label(),
+            "model": model(cfg),
+            "usage": usage,
             "omni": omni,
             "judge": judge,
             "selection": { "image": image + 1, "audio": audio + 1 },
@@ -132,6 +163,112 @@ pub fn decide(
         score,
         reason,
     })
+}
+
+enum Part {
+    Image { label: String, path: PathBuf },
+    Audio { label: String, path: PathBuf },
+}
+
+fn evidence(
+    cfg: &Config,
+    images: &[Candidate],
+    audios: &[Candidate],
+    dir: &Path,
+) -> Result<Vec<Part>> {
+    let mut parts = Vec::with_capacity(images.len() + audios.len());
+    for (index, candidate) in images.iter().enumerate() {
+        parts.push(Part::Image {
+            label: format!("Image {}", index + 1),
+            path: prepare_image(cfg, candidate, dir, index)?,
+        });
+    }
+    for (index, candidate) in audios.iter().enumerate() {
+        parts.push(Part::Audio {
+            label: format!("Audio {}", index + 1),
+            path: prepare_audio(cfg, candidate, dir, index)?,
+        });
+    }
+    Ok(parts)
+}
+
+fn brief(vibe: &str, images: usize, audios: usize) -> String {
+    format!(
+        "Brief: {vibe}\n\n\
+         The channel publishes original 8-bit instrumental music and pixel-art thumbnails. \
+         The candidates must be instrumental, 8-bit, 16:9, with no text or watermark. \
+         You will receive {images} images and {audios} audio clips, labeled in order. \
+         Score every image from 0 to 100 for adherence to the brief and channel style: \
+         composition, palette, readability at thumbnail size, natural eyes, no text. \
+         Score every audio clip from 0 to 100 for instrumental quality, energy, intro and \
+         outro, no vocals. \
+         Score the mood coherence of every image/audio pair from 0 to 100. \
+         Return exactly this JSON shape:\n\
+         {{\"images\":[{{\"index\":1,\"score\":0,\"reason\":\"\"}}],\
+         \"audios\":[{{\"index\":1,\"score\":0,\"reason\":\"\"}}],\
+         \"pairs\":[{{\"image\":1,\"audio\":1,\"coherence\":0,\"reason\":\"\"}}],\
+         \"best\":{{\"image\":1,\"audio\":1,\"score\":0}},\"reason\":\"\"}}"
+    )
+}
+
+fn openrouter_content(parts: &[Part], vibe: &str) -> Vec<Value> {
+    let images = parts
+        .iter()
+        .filter(|part| matches!(part, Part::Image { .. }))
+        .count();
+    let audios = parts.len() - images;
+    let mut content = vec![text(brief(vibe, images, audios))];
+    for part in parts {
+        match part {
+            Part::Image { label, path } => {
+                content.push(text(label.clone()));
+                content.push(json!({
+                    "type": "image_url",
+                    "image_url": { "url": data_url(path) }
+                }));
+            }
+            Part::Audio { label, path } => {
+                content.push(text(label.clone()));
+                content.push(json!({
+                    "type": "input_audio",
+                    "input_audio": { "data": base64_file(path), "format": "mp3" }
+                }));
+            }
+        }
+    }
+    content
+}
+
+fn gemini_parts(parts: &[Part], vibe: &str) -> Value {
+    let images = parts
+        .iter()
+        .filter(|part| matches!(part, Part::Image { .. }))
+        .count();
+    let audios = parts.len() - images;
+    let mut out = vec![json!({ "text": brief(vibe, images, audios) })];
+    for part in parts {
+        match part {
+            Part::Image { label, path } => {
+                out.push(json!({ "text": label }));
+                out.push(json!({
+                    "inline_data": {
+                        "mime_type": "image/jpeg",
+                        "data": base64_file(path),
+                    }
+                }));
+            }
+            Part::Audio { label, path } => {
+                out.push(json!({ "text": label }));
+                out.push(json!({
+                    "inline_data": {
+                        "mime_type": "audio/mp3",
+                        "data": base64_file(path),
+                    }
+                }));
+            }
+        }
+    }
+    json!(out)
 }
 
 fn text(value: impl Into<String>) -> Value {
@@ -147,7 +284,7 @@ fn pick_index(value: &Value, count: usize) -> Option<usize> {
     }
 }
 
-fn image_data_url(cfg: &Config, candidate: &Candidate, dir: &Path, index: usize) -> Result<String> {
+fn prepare_image(cfg: &Config, candidate: &Candidate, dir: &Path, index: usize) -> Result<PathBuf> {
     let path = dir.join(format!("image-{:02}.jpg", index + 1));
     let mut cmd = Command::new("ffmpeg");
     cmd.args(["-v", "error", "-y", "-i"])
@@ -166,14 +303,10 @@ fn image_data_url(cfg: &Config, candidate: &Candidate, dir: &Path, index: usize)
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    let bytes = std::fs::read(&path)?;
-    Ok(format!(
-        "data:image/jpeg;base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(bytes)
-    ))
+    Ok(path)
 }
 
-fn audio_base64(cfg: &Config, candidate: &Candidate, dir: &Path, index: usize) -> Result<String> {
+fn prepare_audio(cfg: &Config, candidate: &Candidate, dir: &Path, index: usize) -> Result<PathBuf> {
     let duration = media::duration_secs(&candidate.file).unwrap_or(60.0);
     let start = (duration / 3.0).max(0.0);
     let seconds = cfg.judge_audio_sec.clamp(5, 30);
@@ -192,15 +325,87 @@ fn audio_base64(cfg: &Config, candidate: &Candidate, dir: &Path, index: usize) -
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    let bytes = std::fs::read(&path)?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+    Ok(path)
+}
+
+fn data_url(path: &Path) -> String {
+    format!("data:image/jpeg;base64,{}", base64_file(path))
+}
+
+fn base64_file(path: &Path) -> String {
+    let bytes = std::fs::read(path).unwrap_or_default();
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+fn client(cfg: &Config) -> Result<reqwest::blocking::Client> {
+    reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(cfg.judge_timeout_sec.max(30)))
+        .build()
+        .context("creating the judge client")
+}
+
+/// One-shot request to Gemini's native endpoint through OpenCode Go. The model
+/// sees the images and hears the clips, so it answers the whole verdict itself.
+fn generate(cfg: &Config, parts: &[Part], vibe: &str) -> Result<(Value, Value)> {
+    let body = json!({
+        "systemInstruction": { "parts": [{ "text": SYSTEM }] },
+        "contents": [{ "role": "user", "parts": gemini_parts(parts, vibe) }],
+        "generationConfig": { "responseMimeType": "application/json" }
+    });
+    let url = format!(
+        "{OPENCODE_BASE}/models/{}:generateContent",
+        cfg.judge_model.trim()
+    );
+    let response = client(cfg)?
+        .post(&url)
+        .header(
+            "Authorization",
+            format!("Bearer {}", cfg.opencode_api_key.trim()),
+        )
+        .header("x-opencode-session", session())
+        .header("User-Agent", "melodias-studio/0.1")
+        .json(&body)
+        .send()
+        .context("calling OpenCode Go")?;
+    let status = response.status();
+    let text = response
+        .text()
+        .context("reading the OpenCode Go response")?;
+    if !status.is_success() {
+        bail!("OpenCode Go {status}: {}", truncate(&text, 500));
+    }
+    let parsed: Value = serde_json::from_str(&text).context("OpenCode Go returned invalid JSON")?;
+    let usage = parsed.get("usageMetadata").cloned().unwrap_or(Value::Null);
+    let parts = parsed
+        .pointer("/candidates/0/content/parts")
+        .and_then(Value::as_array)
+        .context("OpenCode Go response has no content")?;
+    let answer = parts
+        .iter()
+        .filter(|part| part["thought"] != json!(true))
+        .filter_map(|part| part["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if answer.trim().is_empty() {
+        let blocked = parsed
+            .pointer("/promptFeedback/blockReason")
+            .and_then(Value::as_str)
+            .unwrap_or("empty answer");
+        bail!("OpenCode Go returned no text ({blocked})");
+    }
+    Ok((extract_json(&answer)?, usage))
+}
+
+/// Stable per-process id so the gateway can route and cache the session.
+fn session() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or_default();
+    format!("melodias-{:x}-{:x}", std::process::id(), nanos)
 }
 
 fn chat(cfg: &Config, model: &str, content: Vec<Value>) -> Result<Value> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(cfg.judge_timeout_sec.max(30)))
-        .build()
-        .context("creating the judge client")?;
     let body = json!({
         "model": model,
         "temperature": 0.1,
@@ -210,11 +415,11 @@ fn chat(cfg: &Config, model: &str, content: Vec<Value>) -> Result<Value> {
             { "role": "user", "content": content }
         ]
     });
-    let response = client
-        .post(ENDPOINT)
+    let response = client(cfg)?
+        .post(OPENROUTER_ENDPOINT)
         .header(
             "Authorization",
-            format!("Bearer {}", cfg.openrouter_api_key),
+            format!("Bearer {}", cfg.openrouter_api_key.trim()),
         )
         .header("X-Title", "melodias-studio")
         .json(&body)
@@ -313,5 +518,13 @@ mod tests {
         assert_eq!(pick_index(&json!(2), 3), Some(1));
         assert_eq!(pick_index(&json!(0), 3), None);
         assert_eq!(pick_index(&json!(4), 3), None);
+    }
+
+    #[test]
+    fn auto_provider_prefers_the_configured_key() {
+        assert_eq!(resolve("auto", false), Provider::OpenRouter);
+        assert_eq!(resolve("auto", true), Provider::OpenCode);
+        assert_eq!(resolve("openrouter", true), Provider::OpenRouter);
+        assert_eq!(resolve("opencode", false), Provider::OpenCode);
     }
 }

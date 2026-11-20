@@ -56,11 +56,16 @@
 # loudness_lufs = -15.0
 
 # --- Judge (optional) ------------------------------------------------------
-# The key goes in the environment of the process that runs melodias:
-#   export OPENROUTER_API_KEY="sk-or-..."
+# The judge runs when a provider key is present. The key goes in the
+# environment of the process that runs melodias:
+#   export OPENCODE_API_KEY="..."    (OpenCode Go, default backend)
+#   export OPENROUTER_API_KEY="sk-or-..."   (alternative backend)
 # or here, in this user-only file (never commit it):
+# opencode_api_key = ""
 # openrouter_api_key = ""
 # judge_enabled = true
+# judge_provider = "auto"        # opencode | openrouter | auto
+# judge_model = "gemini-4-argon" # OpenCode Go, native Gemini API
 # judge_omni_model = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
 # judge_reasoner_model = "nvidia/nemotron-3-ultra-550b-a55b:free"
 # judge_image_px = 768

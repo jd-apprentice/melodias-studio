@@ -275,7 +275,13 @@ fn run(
         let mut suggestion = None;
         let mut summary = None;
         if judge::enabled(cfg) {
-            log(tx, "judge: reviewing thumbnails and clips with OpenRouter");
+            log(
+                tx,
+                format!(
+                    "judge: reviewing thumbnails and clips with {}",
+                    judge::describe(cfg)
+                ),
+            );
             match judge::decide(cfg, vibe, &images, &audios, &work) {
                 Ok(verdict) => {
                     let note = format!(
@@ -298,7 +304,10 @@ fn run(
                 ),
             }
         } else if cfg.judge_enabled {
-            log(tx, "judge: enabled but OPENROUTER_API_KEY is empty");
+            log(
+                tx,
+                format!("judge: enabled but no API key for {}", judge::describe(cfg)),
+            );
         }
         let request = ReviewRequest {
             pool: pool.clone(),
