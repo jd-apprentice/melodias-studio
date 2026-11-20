@@ -36,7 +36,7 @@ Rust TUI plus CLI (binary `melodias`) for a YouTube channel: a reference URL and
 - The history write happens after the video and re-scores the run with `ffmpeg` (about 20 s more). It is best effort: a failure is one log line and the run stays valid. The write also refreshes `work/score.json`. `melodias history` on a machine without the file prints a hint and exits 0; it never creates the database.
 - `scripts/backfill-history.sh` writes the same tables as the pipeline but attaches findings to the selected pool candidate, while the pipeline stores the final pair's findings with a null `candidate_id`. Both feed the same per-code views.
 - `rusqlite` is pinned to 0.32 with `bundled` because 0.43 needs Rust 1.89. Keep 1.85 until the repo floor moves.
-- The dashboard binds `127.0.0.1` only, opens the database read-only (with a read-write fallback for a WAL edge case) and never migrates it. It polls every 3 s and has no Node or build step; the HTML, CSS and JS are `include_str!` so editing them needs a rebuild. A database without the expected tables answers 500 and logs the SQL error; a missing file renders an empty state.
+- The dashboard binds `127.0.0.1` only, opens the database read-only (with a read-write fallback for a WAL edge case) and never migrates it. It polls once a minute and has no Node or build step; the HTML, CSS and JS are `include_str!` so editing them needs a rebuild. A database without the expected tables answers 500 and logs the SQL error; a missing file renders an empty state.
 
 ## Ops
 

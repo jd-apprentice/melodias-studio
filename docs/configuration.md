@@ -101,7 +101,7 @@ Each `runs` row carries the `rubric` version, so a trend only compares runs scor
 
 `make history ARGS=findings` is the shortcut. Runs made before the write existed are added with `make backfill`, which writes the same tables.
 
-`melodias dashboard` serves a read-only page over the same file at `http://127.0.0.1:7373/`. It binds localhost only, opens the database for reading and polls it every three seconds, so new runs appear without a reload. `--port` changes the address and `--limit` the run window (200 by default). The page is a Rust binary plus static files in `dashboard/`; there is no Node and no build step.
+`melodias dashboard` serves a read-only page over the same file at `http://127.0.0.1:7373/`. It binds localhost only, opens the database for reading and polls it once a minute, so new runs appear without a reload. `--port` changes the address and `--limit` the run window (200 by default). The page is a Rust binary plus static files in `dashboard/`; there is no Node and no build step.
 
 ## GPU lifecycle commands
 

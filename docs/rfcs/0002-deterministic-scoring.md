@@ -306,7 +306,7 @@ The editorial score is the weak part and the RFC does not hide it:
 1. **Metrics and `melodias score`.** Done: `src/score.rs`, pure functions over pixel buffers plus parsers for `ffmpeg` output, `melodias score <dir>` and `work/score.json`, findings in the report. Every candidate and the final pair are scored; drafts skip the master-only metrics. No database, no loop.
 2. **History in every run.** Done: `rusqlite` with the bundled feature, one write at the end of a run, `melodias history` reads. `MELODIAS_DB` and the default path. Findings of the final pair are stored at run level (`candidate_id` null); the pool candidates keep their full score in `candidates.score_json`. `scripts/backfill-history.sh` covers the runs made before it existed.
 3. **Retry loop.** Patch table, budget, `accepted_by_limit`, `must_fix` codes in the judge prompt.
-4. **Dashboard.** Done (first version): `melodias dashboard` serves a local read-only page over the database with the score per run and the cost per finding. It is a Rust server plus static files in `dashboard/`, polls every three seconds and needs no build step. A static export over the CSV is still open.
+4. **Dashboard.** Done (first version): `melodias dashboard` serves a local read-only page over the database with the score per run and the cost per finding. It is a Rust server plus static files in `dashboard/`, polls once a minute and needs no build step. A static export over the CSV is still open.
 
 ## Tests
 

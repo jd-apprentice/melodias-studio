@@ -106,7 +106,7 @@ The file is `history.db` next to `config.toml`, and `MELODIAS_DB` overrides it. 
 
 ### Dashboard
 
-`melodias dashboard` serves a read-only page at `http://127.0.0.1:7373/` with the score over runs, the findings that cost the most and the run table. It opens the database for reading only, never creates or migrates it, and refreshes every three seconds, so a finished run appears without reloading. It binds localhost only.
+`melodias dashboard` serves a read-only page at `http://127.0.0.1:7373/` with the score over runs, the findings that cost the most and the run table. It opens the database for reading only, never creates or migrates it, and refreshes once a minute, so a finished run appears without reloading. It binds localhost only.
 
 ```bash
 melodias dashboard

@@ -1,7 +1,11 @@
 // Read-only dashboard for the melodias history database. It polls one JSON
 // summary and redraws; there is no build step and no external dependency.
 
-const REFRESH_MS = 3000;
+const REFRESH_MS = 60000;
+const REFRESH_LABEL =
+  REFRESH_MS % 60000 === 0
+    ? `${REFRESH_MS / 60000} min`
+    : `${Math.round(REFRESH_MS / 1000)} s`;
 const TABLE_ROWS = 50;
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -343,7 +347,7 @@ function render(data) {
   if (!data.runs.length) {
     renderEmpty(data);
     document.getElementById("footer").textContent =
-      `polling every ${REFRESH_MS / 1000} s · read-only · database ${data.db}`;
+      `polling every ${REFRESH_LABEL} · read-only · database ${data.db}`;
     return;
   }
   for (const id of ["score-panel", "findings-panel", "runs-panel"]) {
@@ -354,7 +358,7 @@ function render(data) {
   renderFindingsChart(data);
   renderRunsTable(data);
   document.getElementById("footer").textContent =
-    `polling every ${REFRESH_MS / 1000} s · read-only · window ${data.limit} runs · rubric ` +
+    `polling every ${REFRESH_LABEL} · read-only · window ${data.limit} runs · rubric ` +
     (data.rubrics.join(", ") || "-");
 }
 

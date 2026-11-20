@@ -1,7 +1,7 @@
 //! Local, read-only dashboard over the history database.
 //!
 //! It serves one page plus a small JSON summary from `127.0.0.1`. The page
-//! polls the summary every few seconds, so a finished run shows up without a
+//! polls the summary once a minute, so a finished run shows up without a
 //! reload. The server never writes to the database and never creates it.
 
 use std::io::{BufRead, BufReader, Write};
