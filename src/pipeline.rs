@@ -131,12 +131,24 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
     let remote = step(tx, 5, || media::push_reference(cfg, &reference, &slug))?;
     log(tx, format!("referencia remota: {remote}"));
 
-    let audio_bytes = step(tx, 6, || {
+    let audio_result = step(tx, 6, || {
+        // The timbre reference pushes ACE-Step past what fits next to the 4B,
+        // so both the image model and the LLM go away before the audio stage.
         media::ssh_run(cfg, &cfg.sd_stop_cmd)?;
+        media::ssh_run(cfg, &cfg.llm_stop_cmd)?;
         media::ssh_run(cfg, &cfg.audio_start_cmd)?;
         clients::wait_audio(cfg, Duration::from_secs(180))?;
         clients::generate_audio(cfg, vibe, &remote, seed)
-    })?;
+    });
+    // Release the P40 even when the take failed, so a later image stage can load.
+    let stopped = media::ssh_run(cfg, &cfg.audio_stop_cmd);
+    if let Err(err) = &stopped {
+        log(
+            tx,
+            format!("aviso: el servidor de audio quedó arriba: {err:#}"),
+        );
+    }
+    let audio_bytes = audio_result?;
     let take = work.join("take.wav");
     std::fs::write(&take, &audio_bytes).context("guardando la toma")?;
     log(

@@ -25,7 +25,7 @@ The order is deliberate: the image runs first because it is the most fragile sta
   - `audiocpp_server` with ACE-Step on `:8090`
 - Passwordless SSH to the VM, used to stage the audio reference and to run the lifecycle commands.
 
-The P40 has 24 GB. A 4B model only keeps ~3.4 GB busy, so the prompt step and `sd-server` (11.4 GB) can hold the GPU at the same time; the audio stage still stops `sd-server` before loading ACE-Step.
+The P40 has 24 GB. A 4B model only keeps ~3.4 GB busy, so the prompt step and `sd-server` (11.4 GB) can hold the GPU at the same time. The audio stage stops both `sd-server` and the LLM: ACE-Step with a timbre reference needs the whole card. `deploy/audio-server.json` enables `ace_step.mem_saver`, which returns the session to ~14.7 GB between requests.
 
 ## Deploy the server scripts
 
@@ -94,10 +94,11 @@ They run over SSH between stages. The defaults point at the `deploy/` scripts; o
 | Variable | Default | When it runs |
 | --- | --- | --- |
 | `LLM_START_CMD` | `/home/ubuntu/bin/serve-llm.sh start` | before the thumbnail prompt |
-| `LLM_STOP_CMD` | empty | after the prompt; empty because the 4B fits |
+| `LLM_STOP_CMD` | `/home/ubuntu/bin/serve-llm.sh stop` | before the audio stage, to free 3.4 GB |
 | `SD_START_CMD` | `/home/ubuntu/bin/serve-sd.sh start` | before the thumbnail |
 | `SD_STOP_CMD` | `/home/ubuntu/bin/serve-sd.sh stop` | before the audio stage |
 | `AUDIO_START_CMD` | `/home/ubuntu/bin/serve-audio.sh start` | before the audio stage |
+| `AUDIO_STOP_CMD` | `/home/ubuntu/bin/serve-audio.sh stop` | after the take, even if it failed |
 
 The app waits for `/health` on the service it just started, up to 180 s, before moving on.
 
@@ -122,6 +123,7 @@ node ~/.agents/skills/archify/bin/archify.mjs finalize architecture docs/arquite
 ## Design notes
 
 - **The reference is an excerpt, not the whole song.** ACE-Step samples three 10 s windows from the file, so the app picks the minute with the highest average energy and skips intros and breakdowns.
+- **The audio parameters travel inside `options`.** `/v1/tasks/run` only forwards the nested `options` object to the ACE-Step parser, so `duration_sec`, `reference_audio` and `sampler_mode` at the top level of `request` are silently dropped. Sent inside `options`, `duration_sec` returns an exact length.
 - **The loop is built in ffmpeg.** A 3 s crossfade between the end of the outro and the start of the intro. It does not depend on the model or on its tempo.
 - **The LLM writes the thumbnail prompt.** The vibe goes in as a concept and comes back as an English prompt, with the pixel-art style pinned in the system prompt.
 - **Stages fail loudly and stop the run.** Each step reports its own error in the log so you know which service to look at.

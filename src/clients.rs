@@ -89,9 +89,8 @@ pub fn ask_image_prompt(cfg: &Config, vibe: &str) -> Result<String> {
 most 60 words, in English, no quotes, no explanation. Describe a 16:9 YouTube thumbnail \
 in 8-bit pixel art style: one anime character in a scene, detailed pixelated background, \
 nostalgic cozy mood. Never mention audio, BPM, tempo, music, songs, text or watermarks.";
-    let user = format!(
-        "Thumbnail concept, keep the scene but adapt the palette and props to it: {vibe}"
-    );
+    let user =
+        format!("Thumbnail concept, keep the scene but adapt the palette and props to it: {vibe}");
     let body = json!({
         "model": cfg.llm_model,
         "temperature": 0.5,
@@ -125,17 +124,22 @@ nostalgic cozy mood. Never mention audio, BPM, tempo, music, songs, text or wate
 
 pub fn generate_audio(cfg: &Config, prompt: &str, reference: &str, seed: u32) -> Result<Vec<u8>> {
     let url = format!("{}/v1/tasks/run", cfg.audio_url.trim_end_matches('/'));
+    // The server only forwards the nested `options` object to the ACE-Step
+    // parser. duration_sec, reference_audio and sampler_mode are ignored when
+    // they sit at the top level of `request`.
     let body = json!({
         "model": cfg.audio_model,
         "request": {
             "route": "text2music",
             "text": prompt,
-            "duration_sec": cfg.duration_sec,
             "seed": seed,
-            "reference_audio": reference,
             "num_inference_steps": cfg.steps,
             "guidance_scale": cfg.guidance,
-            "sampler_mode": cfg.sampler
+            "options": {
+                "reference_audio": reference,
+                "duration_sec": cfg.duration_sec,
+                "sampler_mode": cfg.sampler
+            }
         }
     });
     let resp: serde_json::Value = long_client()?
