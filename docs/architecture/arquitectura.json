@@ -10,7 +10,7 @@
       "url": "https://github.com/jd-apprentice/melodias-studio",
       "provider": "github",
       "link_mode": "web",
-      "revision": "54b0ba4efaac8c095aa3856c00bdc7b46294fbcb"
+      "revision": "9621c85e9a32290de6a49836ce437a6cbb917747"
     },
     "legend": {
       "entries": {
@@ -65,14 +65,14 @@
       "sources": [
         {
           "path": "src/app.rs",
-          "line": 249,
-          "end_line": 298,
+          "line": 255,
+          "end_line": 304,
           "label": "key loop"
         },
         {
           "path": "src/app.rs",
-          "line": 300,
-          "end_line": 333,
+          "line": 306,
+          "end_line": 339,
           "label": "screen layout"
         }
       ]
@@ -81,7 +81,7 @@
       "id": "pipeline",
       "type": "backend",
       "label": "pipeline.rs",
-      "sublabel": "10 stages · pools + review",
+      "sublabel": "11 stages · pools + review + video",
       "pos": [
         470,
         270
@@ -94,13 +94,13 @@
         {
           "path": "src/pipeline.rs",
           "line": 10,
-          "end_line": 21,
+          "end_line": 22,
           "label": "stage order"
         },
         {
           "path": "src/pipeline.rs",
-          "line": 106,
-          "end_line": 403,
+          "line": 108,
+          "end_line": 423,
           "label": "run()"
         }
       ]
@@ -127,15 +127,15 @@
         },
         {
           "path": "src/media.rs",
-          "line": 96,
-          "end_line": 169,
-          "label": "RMS selection"
+          "line": 206,
+          "end_line": 238,
+          "label": "master"
         },
         {
           "path": "src/media.rs",
-          "line": 206,
-          "end_line": 237,
-          "label": "master and loudnorm"
+          "line": 241,
+          "end_line": 302,
+          "label": "video assembly"
         }
       ]
     },
@@ -178,7 +178,7 @@
         {
           "path": "src/clients.rs",
           "line": 86,
-          "end_line": 128,
+          "end_line": 129,
           "label": "image prompt"
         },
         {
@@ -205,8 +205,8 @@
       "sources": [
         {
           "path": "src/clients.rs",
-          "line": 185,
-          "end_line": 206,
+          "line": 189,
+          "end_line": 210,
           "label": "image generation"
         },
         {
@@ -233,8 +233,8 @@
       "sources": [
         {
           "path": "src/clients.rs",
-          "line": 139,
-          "end_line": 183,
+          "line": 140,
+          "end_line": 187,
           "label": "take with reference"
         },
         {
@@ -255,7 +255,7 @@
       "id": "salida",
       "type": "database",
       "label": "output/<slug>",
-      "sublabel": "audio.mp3 · PNG · meta.json",
+      "sublabel": "audio.mp3 · PNG · video · meta",
       "pos": [
         40,
         600
@@ -267,9 +267,9 @@
       "sources": [
         {
           "path": "src/pipeline.rs",
-          "line": 321,
-          "end_line": 396,
-          "label": "master and metadata"
+          "line": 323,
+          "end_line": 423,
+          "label": "master, video and metadata"
         }
       ]
     }
@@ -371,8 +371,8 @@
         "candidates/ keeps N images and N audio drafts",
         "3 images at 20 steps and 3 drafts at 60 s by default",
         "The review pauses the run for a manual pick",
-        "meta.json stores candidates, seeds and the selected pair",
-        "The chosen draft seed drives the full 210 s take"
+        "video.mp4 adds a slow zoom, floating particles and the waveform",
+        "meta.json stores candidates, seeds and the selected pair"
       ]
     },
     {
