@@ -2,6 +2,7 @@ mod app;
 mod banner;
 mod clients;
 mod config;
+mod judge;
 mod media;
 mod pipeline;
 
@@ -80,8 +81,9 @@ fn run_headless(cfg: config::Config, args: &[String]) -> io::Result<()> {
         match msg {
             Msg::Stage(idx, state) => out.stage(idx, state),
             Msg::Log(text) => out.log_line(&text),
-            Msg::Choose(pool) => {
+            Msg::Choose(request) => {
                 out.line("", None);
+                let pool = &request.pool;
                 let header = format!(
                     "Review: {} images and {} audio drafts",
                     pool.images.len(),
@@ -107,11 +109,18 @@ fn run_headless(cfg: config::Config, args: &[String]) -> io::Result<()> {
                         candidate.seed
                     ));
                 }
-                let selection = Selection { image: 0, audio: 0 };
+                if let Some(note) = &request.note {
+                    out.log_line(&format!("judge: {note}"));
+                }
+                let selection = request
+                    .suggestion
+                    .unwrap_or(Selection { image: 0, audio: 0 });
                 let _ = decisions.send(selection);
-                out.log_line(
-                    "auto-selected image 1 and audio draft 1 (headless; use the TUI to choose)",
-                );
+                out.log_line(&format!(
+                    "selected image {} and audio draft {} (headless)",
+                    selection.image + 1,
+                    selection.audio + 1
+                ));
             }
             Msg::Done(Ok(outcome)) => {
                 out.line("", None);

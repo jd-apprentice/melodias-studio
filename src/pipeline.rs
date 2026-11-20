@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 
-use crate::{clients, config::Config, media};
+use crate::{clients, config::Config, judge, media};
 
 pub const STAGES: [&str; 11] = [
     "Image prompt",
@@ -55,10 +55,18 @@ pub struct Outcome {
     pub image_prompt: String,
 }
 
+#[derive(Clone, Debug)]
+pub struct ReviewRequest {
+    pub pool: Pool,
+    /// Indices suggested by the cloud judge, if it ran and answered.
+    pub suggestion: Option<Selection>,
+    pub note: Option<String>,
+}
+
 pub enum Msg {
     Stage(usize, State),
     Log(String),
-    Choose(Pool),
+    Choose(ReviewRequest),
     Done(Result<Outcome, String>),
 }
 
@@ -263,9 +271,46 @@ fn run(
         images: images.clone(),
         audios: audios.clone(),
     };
-    let selection = step(tx, 7, || {
-        let _ = tx.send(Msg::Choose(pool));
-        decisions.recv().context("the review was cancelled")
+    let (selection, judge_summary) = step(tx, 7, || {
+        let mut suggestion = None;
+        let mut summary = None;
+        if judge::enabled(cfg) {
+            log(tx, "judge: reviewing thumbnails and clips with OpenRouter");
+            match judge::decide(cfg, vibe, &images, &audios, &work) {
+                Ok(verdict) => {
+                    let note = format!(
+                        "judge: image {} · audio {} · score {} · {}",
+                        verdict.image + 1,
+                        verdict.audio + 1,
+                        verdict.score,
+                        verdict.reason
+                    );
+                    log(tx, note.clone());
+                    suggestion = Some(Selection {
+                        image: verdict.image,
+                        audio: verdict.audio,
+                    });
+                    summary = Some(verdict.summary());
+                }
+                Err(error) => log(
+                    tx,
+                    format!("judge: failed, keeping the manual pick: {error:#}"),
+                ),
+            }
+        } else if cfg.judge_enabled {
+            log(tx, "judge: enabled but OPENROUTER_API_KEY is empty");
+        }
+        let request = ReviewRequest {
+            pool: pool.clone(),
+            suggestion,
+            note: summary
+                .as_ref()
+                .and_then(|value| value["reason"].as_str())
+                .map(str::to_string),
+        };
+        let _ = tx.send(Msg::Choose(request));
+        let selection = decisions.recv().context("the review was cancelled")?;
+        Ok((selection, summary))
     })?;
     let selected_image = images
         .get(selection.image)
@@ -407,7 +452,8 @@ fn run(
             "video": {
                 "file": video.display().to_string(),
                 "size": format!("{}x{}", cfg.video_width, cfg.video_height),
-            }
+            },
+            "judge": judge_summary,
         });
         std::fs::write(root.join("meta.json"), serde_json::to_vec_pretty(&meta)?)?;
         Ok(video)

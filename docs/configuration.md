@@ -31,6 +31,13 @@ cp config.example.toml ~/.config/melodias-studio/config.toml
 | `SAMPLER` | `heun` | `euler` or `heun` |
 | `WIDTH` / `HEIGHT` | `1280` / `720` | thumbnail size |
 | `VIDEO_WIDTH` / `VIDEO_HEIGHT` | `1920` / `1080` | final video canvas |
+| `JUDGE_ENABLED` | `false` | sends the candidates to the OpenRouter judge |
+| `OPENROUTER_API_KEY` | empty | required for the judge; export it in the shell that runs `melodias` |
+| `JUDGE_OMNI_MODEL` | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` | sees images and hears clips |
+| `JUDGE_REASONER_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b:free` | text-only final choice |
+| `JUDGE_IMAGE_PX` | `768` | JPEG size sent to the judge |
+| `JUDGE_AUDIO_SEC` | `15` | clip length sent to the judge |
+| `JUDGE_TIMEOUT_SEC` | `300` | per-call timeout |
 | `IMAGE_STEPS` | `20` | diffusion steps for the thumbnail |
 | `IMAGE_SEED` | random | fixed seed to reproduce a thumbnail |
 | `CANDIDATES` | `3` | candidates per modality |
@@ -41,6 +48,10 @@ cp config.example.toml ~/.config/melodias-studio/config.toml
 | `FADE_IN_SEC` | `1.5` | master fade-in |
 | `FADE_OUT_SEC` | `3.0` | master fade-out |
 | `LOUDNESS_LUFS` | `-15` | master loudness target |
+
+The judge is optional. With `JUDGE_ENABLED=true` and `OPENROUTER_API_KEY` set, the run compresses the candidates to 768 px JPEGs and 15 s mono clips, sends them to the omni model, and asks the reasoning model for the final pair. The review screen opens with the judge's suggestion preselected; `Enter` accepts it. If the key is missing, the API fails or the JSON is invalid, the run falls back to the manual pick and logs it.
+
+The key is read from the environment of the process that runs `melodias` (or from `openrouter_api_key` in this file). It does not belong in the `video/` Remotion project, which only renders local assets.
 
 The channel medium is a hard rule: the audio prompt always gets `AUDIO_STYLE`, even when the vibe does not mention it, and the image system message always pins `IMAGE_STYLE`. The vibe adds mood and references, not the medium.
 

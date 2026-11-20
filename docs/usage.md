@@ -46,6 +46,17 @@ make video DIR=output/<slug>
 
 The video is the chosen still with a slow zoom, glowing pixel particles, the audio waveform and edge fades, at `VIDEO_WIDTH` x `VIDEO_HEIGHT` (1920x1080 by default).
 
+### Judge
+
+When the judge is enabled, the run sends the three thumbnails and three 15 s clips to OpenRouter before the review. The review screen opens with the suggested image and audio preselected and a yellow line with the score and reason. Press `Enter` to accept, or pick another pair.
+
+```bash
+export OPENROUTER_API_KEY="sk-or-..."
+JUDGE_ENABLED=true melodias
+```
+
+The key can also live in `~/.config/melodias-studio/config.toml`. If it is missing, the judge is skipped and the manual review still works.
+
 ### Produced video with Remotion
 
 For the richer composition (bokeh overlays, birds, audio-reactive bars, channel label):

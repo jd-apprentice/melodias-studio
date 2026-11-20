@@ -55,5 +55,17 @@
 # fade_out_sec = 3.0
 # loudness_lufs = -15.0
 
+# --- Judge (optional) ------------------------------------------------------
+# The key goes in the environment of the process that runs melodias:
+#   export OPENROUTER_API_KEY="sk-or-..."
+# or here, in this user-only file (never commit it):
+# openrouter_api_key = ""
+# judge_enabled = true
+# judge_omni_model = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+# judge_reasoner_model = "nvidia/nemotron-3-ultra-550b-a55b:free"
+# judge_image_px = 768
+# judge_audio_sec = 15
+# judge_timeout_sec = 300
+
 # --- Output ----------------------------------------------------------------
 # out_dir = "output"

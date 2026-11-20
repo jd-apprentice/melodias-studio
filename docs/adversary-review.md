@@ -1,6 +1,6 @@
 # Adversary review and video assembly
 
-Status: in progress. Phases 1 and 2 are implemented, and so is the assembly with ffmpeg and Remotion. Local critics, the ranking loop and the cloud judge are not implemented; this document now specifies the judge with real OpenRouter models.
+Status: in progress. Phases 1, 2 and the cloud judge are implemented, and so is the assembly with ffmpeg and Remotion. The local hard gates and the retry loop are not. The judge preselects the pair and the TUI keeps the manual override.
 
 ## Why
 
@@ -131,6 +131,8 @@ The omni model is the part that actually sees the eyes, the palette and the comp
 
 The Ultra is the arbiter, not the perception layer. It never sees the raw media.
 
+The judge is implemented in `src/judge.rs`. It runs before the review, writes `work/judge/verdict.json`, and returns a suggestion that preselects the TUI review. Without `OPENROUTER_API_KEY` the judge is skipped and the manual pick still works.
+
 ### Decider
 
 `pplx-decider-v1.3` is not available on OpenRouter: the URL returns 404 and the model list only has the Sonar family (text and image, paid). Use the Ultra with a strict choice, or a deterministic argmax over the omni scores. A paid Sonar model is only worth it for a third opinion, not for the default path.
@@ -249,8 +251,8 @@ The same keys belong in `config.toml` once the feature exists. Image seeds and s
 
 1. Image steps and seed through `sd_cpp_extra_args`, plus the draft/final policy. Seed, steps and the image tier (full steps) are done; the audio draft policy is pending validation.
 2. Manifest and candidate pools, with a manual pick in the TUI. No new models. Done: `meta.json` records the candidates and the selection.
-3. Deterministic hard gates, local metrics and the compressed evidence package.
-4. Omni perception + Ultra judge, with the strict JSON contract and fail-open.
+3. Deterministic hard gates and local metrics.
+4. Omni perception + Ultra judge, with the strict JSON contract and fail-open. Done.
 5. Review loop with rounds and thresholds; the TUI can still override the pick.
 6. Video assembly: done with ffmpeg and Remotion; the preset agent is pending.
 7. Bar-aligned splicing, only if the seams measure clean.

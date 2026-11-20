@@ -41,6 +41,13 @@ pub struct Config {
     pub height: u32,
     pub video_width: u32,
     pub video_height: u32,
+    pub judge_enabled: bool,
+    pub openrouter_api_key: String,
+    pub judge_omni_model: String,
+    pub judge_reasoner_model: String,
+    pub judge_image_px: u32,
+    pub judge_audio_sec: u32,
+    pub judge_timeout_sec: u64,
     pub image_steps: u32,
     /// Optional fixed seed to reproduce an image candidate.
     pub image_seed: Option<u32>,
@@ -125,6 +132,26 @@ impl Config {
             height: pick_parsed(env("HEIGHT"), file.height, 720),
             video_width: pick_parsed(env("VIDEO_WIDTH"), file.video_width, 1920),
             video_height: pick_parsed(env("VIDEO_HEIGHT"), file.video_height, 1080),
+            judge_enabled: env("JUDGE_ENABLED")
+                .map(|value| parse_bool(&value))
+                .or(file.judge_enabled)
+                .unwrap_or(false),
+            openrouter_api_key: env("OPENROUTER_API_KEY")
+                .or(file.openrouter_api_key)
+                .unwrap_or_default(),
+            judge_omni_model: pick(
+                env("JUDGE_OMNI_MODEL"),
+                file.judge_omni_model,
+                "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+            ),
+            judge_reasoner_model: pick(
+                env("JUDGE_REASONER_MODEL"),
+                file.judge_reasoner_model,
+                "nvidia/nemotron-3-ultra-550b-a55b:free",
+            ),
+            judge_image_px: pick_parsed(env("JUDGE_IMAGE_PX"), file.judge_image_px, 768),
+            judge_audio_sec: pick_parsed(env("JUDGE_AUDIO_SEC"), file.judge_audio_sec, 15),
+            judge_timeout_sec: pick_parsed(env("JUDGE_TIMEOUT_SEC"), file.judge_timeout_sec, 300),
             image_steps: pick_parsed(env("IMAGE_STEPS"), file.image_steps, 20),
             image_seed: env("IMAGE_SEED")
                 .and_then(|value| value.parse().ok())
@@ -154,6 +181,13 @@ impl Config {
             .unwrap_or_else(|| PathBuf::from("."));
         base.join("melodias-studio").join("config.toml")
     }
+}
+
+fn parse_bool(value: &str) -> bool {
+    matches!(
+        value.to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
 }
 
 fn env(key: &str) -> Option<String> {
@@ -207,6 +241,13 @@ struct FileConfig {
     height: Option<u32>,
     video_width: Option<u32>,
     video_height: Option<u32>,
+    judge_enabled: Option<bool>,
+    openrouter_api_key: Option<String>,
+    judge_omni_model: Option<String>,
+    judge_reasoner_model: Option<String>,
+    judge_image_px: Option<u32>,
+    judge_audio_sec: Option<u32>,
+    judge_timeout_sec: Option<u64>,
     image_steps: Option<u32>,
     image_seed: Option<u32>,
     candidates: Option<u32>,

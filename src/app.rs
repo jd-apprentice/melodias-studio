@@ -31,6 +31,7 @@ struct Review {
     image: usize,
     audio: usize,
     field: ReviewField,
+    note: Option<String>,
 }
 
 struct App {
@@ -185,17 +186,26 @@ impl App {
                     write_line(&mut self.log, &format!("   · {text}"));
                     self.logs.push(text);
                 }
-                Ok(Msg::Choose(pool)) => {
+                Ok(Msg::Choose(request)) => {
                     write_line(
                         &mut self.log,
                         "review: choose one image and one audio draft",
                     );
+                    let image = request
+                        .suggestion
+                        .map(|selection| selection.image)
+                        .unwrap_or(0);
+                    let audio = request
+                        .suggestion
+                        .map(|selection| selection.audio)
+                        .unwrap_or(0);
                     self.review = Some(Review {
-                        images: pool.images,
-                        audios: pool.audios,
-                        image: 0,
-                        audio: 0,
+                        images: request.pool.images,
+                        audios: request.pool.audios,
+                        image,
+                        audio,
                         field: ReviewField::Images,
+                        note: request.note,
                     });
                 }
                 Ok(Msg::Done(result)) => {
@@ -454,6 +464,12 @@ fn draw_review(frame: &mut Frame, app: &App, area: Rect) {
                 .add_modifier(Modifier::BOLD),
         ),
     ]));
+    if let Some(note) = &review.note {
+        lines.push(Line::from(Span::styled(
+            format!("Judge: {note}"),
+            Style::default().fg(Color::Yellow),
+        )));
+    }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         if review.field == ReviewField::Images {
@@ -769,6 +785,9 @@ mod tests {
                 image: 1,
                 audio: 0,
                 field: ReviewField::Images,
+                note: Some(
+                    "image 2 · audio 1 · score 88 · warm light and coherent mood".to_string(),
+                ),
             });
             terminal.draw(|frame| draw(frame, &app)).unwrap();
             dump(&terminal, width, height, "review");
