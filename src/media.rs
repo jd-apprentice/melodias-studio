@@ -194,22 +194,23 @@ pub fn push_reference(cfg: &crate::config::Config, local: &Path, slug: &str) -> 
     Ok(remote)
 }
 
-/// Fades the last 3 s into the first 3 s and normalizes to -15 LUFS.
-pub fn make_loop(src: &Path, dir: &Path) -> Result<PathBuf> {
+/// Keeps the take as a standalone song: loudness normalization and gentle edge
+/// fades. It never crossfades the outro into the intro, so the natural ending
+/// and the opening build stay in place.
+pub fn master_take(src: &Path, dir: &Path) -> Result<PathBuf> {
+    const FADE_IN: f64 = 1.5;
+    const FADE_OUT: f64 = 3.0;
     let total = duration_secs(src)?;
-    let xf = 3.0f64;
-    if total <= xf * 2.0 + 5.0 {
-        bail!("the take is {total:.1} s long, too short to build the loop");
+    if total <= FADE_IN + FADE_OUT + 5.0 {
+        bail!("the take is {total:.1} s long, too short to master");
     }
-    let cut = total - xf;
+    let fade_out_start = total - FADE_OUT;
     let graph = format!(
-        "[0:a]atrim=0:{xf},asetpts=PTS-STARTPTS[head];\
-         [0:a]atrim={xf}:{cut},asetpts=PTS-STARTPTS[core];\
-         [0:a]atrim={cut}:{total},asetpts=PTS-STARTPTS[tail];\
-         [tail][head]acrossfade=d={xf}:c1=tri:c2=tri[seam];\
-         [core][seam]concat=n=2:v=0:a=1,loudnorm=I=-15:TP=-1.5[out]"
+        "[0:a]loudnorm=I=-15:TP=-1.5,\
+         afade=t=in:st=0:d={FADE_IN},\
+         afade=t=out:st={fade_out_start:.3}:d={FADE_OUT}[out]"
     );
-    let out = dir.join("loop.wav");
+    let out = dir.join("master.wav");
     let mut cmd = Command::new("ffmpeg");
     cmd.args(["-v", "error", "-y", "-i"])
         .arg(src)
@@ -217,9 +218,9 @@ pub fn make_loop(src: &Path, dir: &Path) -> Result<PathBuf> {
         .args(["-c:a", "pcm_s16le"])
         .arg(&out);
     attach_output(&mut cmd);
-    let status = cmd.status().context("building the loop")?;
+    let status = cmd.status().context("mastering the take")?;
     if !status.success() {
-        bail!("ffmpeg failed while building the loop");
+        bail!("ffmpeg failed while mastering the take");
     }
     Ok(out)
 }

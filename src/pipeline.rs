@@ -15,7 +15,7 @@ pub const STAGES: [&str; 9] = [
     "Reference",
     "Upload",
     "Audio",
-    "Loop + master",
+    "Master",
     "Save",
 ];
 
@@ -146,7 +146,10 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
 
     // The vibe is the only audio prompt. The word "instrumental" plus the
     // negative prompt keep voices out of every delivery.
-    let audio_prompt = format!("{vibe}, instrumental");
+    let audio_prompt = format!(
+        "{vibe}, instrumental, soft intro that builds gradually, full arrangement in the middle, \
+         gentle outro that resolves and fades out"
+    );
     log(tx, format!("prompt audio: {audio_prompt}"));
 
     let audio_result = step(tx, 6, || {
@@ -178,12 +181,12 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
         ),
     );
 
-    let looped = step(tx, 7, || media::make_loop(&take, &work))?;
-    let mp3 = media::encode_mp3(&looped, &work, 320)?;
+    let mastered = step(tx, 7, || media::master_take(&take, &work))?;
+    let mp3 = media::encode_mp3(&mastered, &work, 320)?;
     log(
         tx,
         format!(
-            "loop: {} ({:.0} s)",
+            "master: {} ({:.0} s)",
             mp3.display(),
             media::duration_secs(&mp3)?
         ),
@@ -206,6 +209,7 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
                 "guidance": cfg.guidance,
                 "sampler": cfg.sampler,
                 "duration_sec": cfg.duration_sec,
+                "master": "fade-in 1.5 s, fade-out 3 s, -15 LUFS",
                 "reference": remote,
                 "file": final_audio,
             },

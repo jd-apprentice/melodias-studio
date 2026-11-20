@@ -401,7 +401,7 @@ fn log_style(text: &str) -> Style {
         Style::default().fg(Color::Red)
     } else if lower.starts_with("warning") {
         Style::default().fg(Color::Yellow)
-    } else if lower.starts_with("thumbnail") || lower.starts_with("loop") {
+    } else if lower.starts_with("thumbnail") || lower.starts_with("master") {
         Style::default().fg(Color::Green)
     } else {
         Style::default()

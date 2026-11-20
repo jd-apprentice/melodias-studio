@@ -10,7 +10,7 @@ YouTube URL + vibe
         ├─ yt-dlp ─────────► source audio
         ├─ ffmpeg ─────────► 60 s excerpt with the most energy (timbre reference)
         ├─ audiocpp_server ► 210 s take with reference_audio
-        └─ ffmpeg ─────────► 3 s loop + loudnorm -15 LUFS
+        └─ ffmpeg ─────────► fade-in/out + loudnorm -15 LUFS
 ```
 
 The order is deliberate: the image runs first because it is the most fragile stage, and the download plus audio form one block that only needs the audio server.
@@ -117,7 +117,7 @@ The app waits for `/health` on the service it just started, up to 180 s, before 
 
 ```
 output/<slug>/
-├── audio.mp3      # 3 min loop, 320 kbps, -15 LUFS
+├── audio.mp3      # 3 min song, 320 kbps, -15 LUFS
 ├── thumbnail.png  # 1280x720
 ├── meta.json      # seed, prompts, parameters and source URL
 └── work/          # source, reference and raw take
@@ -138,13 +138,12 @@ node ~/.agents/skills/archify/bin/archify.mjs finalize architecture docs/arquite
 - **The reference is an excerpt, not the whole song.** ACE-Step samples three 10 s windows from the file, so the app picks the minute with the highest average energy and skips intros and breakdowns. It conditions timbre and style, not the melody: the result is not a cover of the source.
 - **Every track is instrumental.** The vibe is sent as `<vibe>, instrumental` and `options.negative_prompt` lists vocals, singing, choir, lyrics and humming. ACE-Step uses that text as the unconditional CFG prompt, so it steers away from voices instead of hoping the caption is ignored.
 - **The audio parameters travel inside `options`.** `/v1/tasks/run` only forwards the nested `options` object to the ACE-Step parser, so `duration_sec`, `reference_audio` and `sampler_mode` at the top level of `request` are silently dropped. Sent inside `options`, `duration_sec` returns an exact length.
-- **The loop is built in ffmpeg.** A 3 s crossfade between the end of the outro and the start of the intro. It does not depend on the model or on its tempo.
+- **The take is the song, not a loop.** ACE-Step writes its own intro and outro, so the master keeps both: it normalizes to -15 LUFS, fades in over 1.5 s and fades out over the last 3 s. Nothing is crossfaded back into the intro.
 - **The LLM writes the thumbnail prompt.** The vibe goes in as a concept and comes back as an English prompt, with the pixel-art style pinned in the system prompt.
 - **Stages fail loudly and stop the run.** Each step reports its own error in the log so you know which service to look at.
 
 ## Roadmap
 
-- [ ] Tempo detection and bar-aligned cuts instead of a fixed 3 s crossfade.
 - [ ] Cancel a run in progress and retry a single stage.
 - [ ] Read the video title to name the output folder instead of the vibe.
 - [ ] Config file at `~/.config/melodias-studio/config.toml`.
