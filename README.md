@@ -67,6 +67,21 @@ cargo run -- 'https://www.youtube.com/watch?v=...' 'epic 8-bit orchestral finale
 
 The image stage reports its own duration and the size of the PNG it got back, and warns when the server returned something other than the requested size.
 
+### Make shortcuts
+
+The `Makefile` wraps the common commands:
+
+| Target | What it does |
+| --- | --- |
+| `make run` | Opens the TUI |
+| `make generate URL='...' VIBE='...'` | Runs headless and tees the log to `output/run-<timestamp>.log` |
+| `make log` | Prints the last 40 lines of the newest log |
+| `make check` | `fmt --check`, build, `clippy -D warnings` and tests |
+| `make status` | Service state on the VM over SSH |
+| `make deploy` | Copies `deploy/` to the VM and fixes permissions |
+
+`make generate` builds the release binary first, so the run does not pay debug overhead.
+
 ## Configuration
 
 Everything is read from the environment, with defaults pointing at the VM:
