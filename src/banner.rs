@@ -15,7 +15,7 @@ const ART: [&str; 5] = [
     "#   # ##### #####  ###  ####  ##### #   # #### ",
 ];
 
-const TAGLINE: &str = "YouTube to thumbnail and song";
+const TAGLINE: &str = "Original 8-bit content, made locally";
 
 /// Prints the banner on the headless start, where there is no alternate screen.
 pub fn print(pretty: bool, gpu: &str) {

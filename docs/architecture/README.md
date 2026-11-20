@@ -1,15 +1,17 @@
 # Architecture
 
 ```
-YouTube URL + vibe
+vibe + reference URL
         │
         ├─ llama-server ───► thumbnail prompt (needs the GPU)
         ├─ sd-server ──────► 1280x720 thumbnail
-        ├─ yt-dlp ─────────► source audio
-        ├─ ffmpeg ─────────► 60 s excerpt with the most energy (timbre reference)
-        ├─ audiocpp_server ► 210 s take with reference_audio
+        ├─ yt-dlp ─────────► reference WAV
+        ├─ ffmpeg ─────────► 60 s excerpt with the most energy
+        ├─ audiocpp_server ► 210 s original take with reference_audio
         └─ ffmpeg ─────────► fade-in/out + loudnorm -15 LUFS
 ```
+
+The reference only conditions timbre. The pipeline does not convert the source: the thumbnail and the track are new material generated from the vibe.
 
 The order is deliberate: the image runs first because it is the most fragile stage, and the download plus audio form one block that only needs the audio server.
 

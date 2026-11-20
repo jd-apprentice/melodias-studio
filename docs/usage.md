@@ -8,6 +8,8 @@
 melodias
 ```
 
+The reference URL is optional in the product vision but required by the current build. It is used only to condition timbre.
+
 - `Tab` switches between the URL and the vibe.
 - `Enter` moves to the next field, then starts the run.
 - `q` quits, only once the run finished.
@@ -16,7 +18,7 @@ Each stage shows its state, the progress bar tracks how many are done, and the l
 
 ## Headless run
 
-Passing the URL and the vibe as arguments runs the same pipeline without the full screen UI. Each stage is printed as its own colored group with an icon, and tool output from `yt-dlp`, `ffmpeg` and `ssh` goes to the run log instead of the screen:
+Passing the reference URL and the vibe as arguments runs the same pipeline without the full screen UI. Each stage is printed as its own colored group with an icon, and tool output from `yt-dlp`, `ffmpeg` and `ssh` goes to the run log instead of the screen:
 
 ```bash
 MELODIAS_LOG=output/run.log melodias 'https://www.youtube.com/watch?v=...' 'epic 8-bit orchestral finale'

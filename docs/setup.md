@@ -3,7 +3,7 @@
 ## Requirements
 
 - Rust 1.85+ (`rustup default stable`) to build from source.
-- `yt-dlp`, `ffmpeg` and `ffprobe` on `PATH`.
+- `yt-dlp`, `ffmpeg` and `ffprobe` on `PATH`. `yt-dlp` pulls the timbre reference; the thumbnail and the track are generated from scratch.
 - Three HTTP services:
   - a chat completions server for the thumbnail prompt (llama.cpp or any OpenAI-compatible endpoint)
   - a stable-diffusion.cpp server for the image (OpenAI images API)

@@ -2,7 +2,9 @@
 
 # melodias-studio
 
-A Rust TUI that turns a YouTube song into an 8-bit thumbnail and a three to four minute instrumental chiptune, using local models.
+A Rust TUI that generates 8-bit thumbnails and original three to four minute instrumental chiptunes for a YouTube channel, using local models.
+
+A reference track can guide the timbre. The thumbnail and the music are generated from scratch, not converted from the source.
 
 ## Quick Start
 

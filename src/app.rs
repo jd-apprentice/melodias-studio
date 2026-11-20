@@ -229,7 +229,7 @@ fn draw(frame: &mut Frame, app: &App) {
             .areas(inputs_area);
 
     draw_header(frame, app, header_area);
-    draw_input(frame, app, url_area, Field::Url, "YouTube URL");
+    draw_input(frame, app, url_area, Field::Url, "Reference URL");
     draw_input(frame, app, vibe_area, Field::Vibe, "Vibe or concept");
     draw_gauge(frame, app, gauge_area);
     draw_body(frame, app, body_area);
@@ -509,7 +509,7 @@ mod tests {
             "thumbnail: output/epic-8-bit-emotional-artcore-orchestra/thumbnail.png (1280x720, 1.5 MB, 5.9 min)".to_string(),
             "source: output/epic-8-bit-emotional-artcore-orchestra/work/source.wav".to_string(),
             "reference: output/epic-8-bit-emotional-artcore-orchestra/work/reference.wav (60 s)".to_string(),
-            "prompt audio: epic 8-bit emotional artcore & orchestra, instrumental, soft intro that builds gradually".to_string(),
+            "prompt audio: epic 8-bit emotional artcore & orchestra, 8-bit chiptune, instrumental, soft intro that builds gradually".to_string(),
             "take: output/epic-8-bit-emotional-artcore-orchestra/work/take.wav (40.3 MB)".to_string(),
         ];
         app
