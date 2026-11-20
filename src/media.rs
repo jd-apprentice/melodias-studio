@@ -20,6 +20,22 @@ fn which(bin: &str) -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
+/// Reads the PNG signature and IHDR, so a broken or resized thumbnail is caught
+/// before it ends up in the output folder. Does not decode the pixels.
+pub fn png_size(path: &Path) -> Result<(u32, u32)> {
+    let mut header = [0u8; 24];
+    std::fs::File::open(path)
+        .with_context(|| format!("abriendo {}", path.display()))?
+        .read_exact(&mut header)
+        .with_context(|| format!("leyendo la cabecera de {}", path.display()))?;
+    if &header[..8] != b"\x89PNG\r\n\x1a\n" || &header[12..16] != b"IHDR" {
+        bail!("{} no es un PNG válido", path.display());
+    }
+    let width = u32::from_be_bytes([header[16], header[17], header[18], header[19]]);
+    let height = u32::from_be_bytes([header[20], header[21], header[22], header[23]]);
+    Ok((width, height))
+}
+
 pub fn download_audio(url: &str, dir: &Path) -> Result<PathBuf> {
     std::fs::create_dir_all(dir)?;
     let template = dir.join("source.%(ext)s");

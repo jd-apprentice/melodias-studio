@@ -50,6 +50,23 @@ cargo run
 
 Each stage shows its state, the progress bar tracks how many are done, and the log prints every step, including the prompt the LLM wrote and the seed of the take.
 
+### Headless run
+
+Passing the URL and the vibe as arguments runs the same pipeline without the full screen UI, printing one line per stage and per log message:
+
+```bash
+cargo run -- 'https://www.youtube.com/watch?v=...' 'epic 8-bit orchestral finale'
+```
+
+Quote the URL: a YouTube link copied from a playlist carries `&list=` and `&index=`, which the shell would otherwise split. The exit code is non-zero when a stage fails, so it can be wrapped in `tee` or a CI job:
+
+```bash
+set -o pipefail
+cargo run -- 'https://www.youtube.com/watch?v=...' 'epic 8-bit orchestral finale' 2>&1 | tee output/run.log
+```
+
+The image stage reports its own duration and the size of the PNG it got back, and warns when the server returned something other than the requested size.
+
 ## Configuration
 
 Everything is read from the environment, with defaults pointing at the VM:

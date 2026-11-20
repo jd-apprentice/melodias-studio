@@ -19,7 +19,7 @@ pub const STAGES: [&str; 9] = [
     "Guardado",
 ];
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
     Pending,
     Running,
@@ -91,10 +91,29 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
         clients::wait_sd(cfg, Duration::from_secs(180))
     })?;
 
+    let image_started = std::time::Instant::now();
     let image_bytes = step(tx, 2, || clients::generate_image(cfg, &image_prompt))?;
     let image = cfg.out_dir.join(&slug).join("thumbnail.png");
     std::fs::write(&image, &image_bytes).context("guardando la miniatura")?;
-    log(tx, format!("miniatura: {}", image.display()));
+    let (width, height) = media::png_size(&image)?;
+    log(
+        tx,
+        format!(
+            "miniatura: {} ({width}x{height}, {:.1} MB, {:.1} min)",
+            image.display(),
+            image_bytes.len() as f64 / 1e6,
+            image_started.elapsed().as_secs_f64() / 60.0
+        ),
+    );
+    if (width, height) != (cfg.width, cfg.height) {
+        log(
+            tx,
+            format!(
+                "aviso: el servidor devolvió {width}x{height} en vez de {}x{}",
+                cfg.width, cfg.height
+            ),
+        );
+    }
 
     let source = step(tx, 3, || media::download_audio(url, &work))?;
     log(tx, format!("fuente: {}", source.display()));
