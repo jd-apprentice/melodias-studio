@@ -147,40 +147,38 @@ The manifest records the brief, resolved config, seeds, hard gate results, soft 
 
 ## Cost control and runtime
 
-More candidates only make sense if a round stays affordable. The current costs come from three choices: the image request sends no steps, so the server uses its 20-step recipe; the audio request uses 32 steps with heun, which evaluates the model twice per step; and every candidate pays the full duration.
+More candidates only make sense if a round stays affordable. The costs come from three choices: the image request now sends steps (20 by default), the audio request uses 32 steps with heun, which evaluates the model twice per step, and every candidate pays the full duration.
 
 Use two tiers:
 
 | Tier | Image | Audio |
 | --- | --- | --- |
-| Draft (the pool) | 1280x720, 10 to 12 steps | 60 s, 16 steps, euler |
-| Final (the winner) | 1280x720, 20 steps | configured duration, 32 steps, heun |
+| Pool | 1280x720, 20 steps | 60 s, 16 steps, euler |
+| Final | the pool winner, no regeneration | configured duration, 32 steps, heun |
 
 Why each choice:
 
-- **Image steps before resolution.** Keep the same 1280x720 canvas for drafts. Changing the canvas changes the latent layout, and with the same seed the final would not match the candidate the critic picked. Steps and seed travel inside `sd_cpp_extra_args`, which the server strips before generation.
-- **A low-step draft is close enough.** With the same seed and size, 12 steps and 20 steps usually share the composition. The critic ranks the draft, and the winner is regenerated at 20 steps.
+- **Image drafts did not hold up.** A/B at 1280x720 with the same seed on the P40: 12 steps took 116 s and 20 steps 285 s, but the 12-step image was visibly softer and even changed the outfit. SSIM between the two was 0.24. Use 20 steps for every image candidate; the saved time is not worth the quality loss.
 - **Image resolution is the last lever.** 1024x576 saves more time but changes the composition. If it is used, the critic must rank the draft and the final must be reviewed again, which defeats part of the saving.
-- **Short audio drafts rank style, not the arc.** A 60 s draft at 16 euler steps is enough to compare timbre, energy and prompt adherence. The full 210 s take is generated once, at 32 heun steps, and passes the hard gates for intro, outro and duration.
+- **Short audio drafts rank style, not the arc.** A 60 s draft at 16 euler steps should be enough to compare timbre, energy and prompt adherence. The full 210 s take is generated once, at 32 heun steps, and passes the hard gates for intro, outro and duration.
 - **Keep the model loaded across the pool.** One load per modality, all candidates inside it.
 - **Turbo for audio drafts is optional.** ACE-Step Turbo caps at 8 steps but requires switching the DiT and reloading, so it only pays off if the reload is cheaper than the saved steps. Measure before adopting it.
 
-Rough wall time on the P40, to be measured rather than trusted:
+Measured wall time, warm model:
 
-| Step | Today | N=2 draft/final | N=3 draft/final |
+| Step | Today | N=2 | N=3 |
 | --- | --- | --- | --- |
-| Image pool | ~6 min for one | ~6 min + ~6 min final | ~9 min + ~6 min final |
-| Audio pool | ~14 min for one | ~4 min + ~14 min final | ~6 min + ~14 min final |
-| Total | ~20 min | ~30 min | ~35 min |
+| Image pool | ~5 min | ~10 min | ~15 min |
+| Audio pool | ~14 min | ~4 min + ~14 min final | ~6 min + ~14 min final |
+| Total | ~20 min | ~28 min | ~35 min |
 
-For comparison, three full candidates would be about 60 minutes. The saving comes mostly from the short audio drafts, not from the images.
+For comparison, three full audio candidates would be about 42 minutes. The saving comes from the short audio drafts, not from the images.
 
-Two quality questions to settle with an A/B before shipping the policy:
+One quality question remains:
 
-- Does 12-step MOSS-Image hold up against 20 steps on this style?
 - Does a 60 s draft rank the same take that a full 210 s run would produce?
 
-If either answer is no, keep the full parameters for that modality and accept the longer round.
+If the answer is no, keep the full parameters for audio and accept the longer round.
 
 ## Configuration sketch
 
@@ -188,7 +186,6 @@ If either answer is no, keep the full parameters for that modality and accept th
 CANDIDATES=2
 IMAGE_STEPS=20
 IMAGE_SEED=
-IMAGE_DRAFT_STEPS=12
 AUDIO_STEPS=32
 AUDIO_DRAFT_STEPS=16
 AUDIO_DRAFT_SEC=60
@@ -201,11 +198,11 @@ JUDGE_API_KEY=
 ASSEMBLY_PRESET=auto
 ```
 
-The same keys belong in `config.toml` once the feature exists. Image seeds are not sent today, so a candidate cannot be replayed; sending `seed` in `sd_cpp_extra_args` is the first prerequisite.
+The same keys belong in `config.toml` once the feature exists. Image seeds and steps are already sent, and the A/B settled the image tier: full steps for every candidate.
 
 ## Phased plan
 
-1. Image steps and seed through `sd_cpp_extra_args`, plus the draft/final policy. Seed and steps are done and validated; the draft/final policy is pending.
+1. Image steps and seed through `sd_cpp_extra_args`, plus the draft/final policy. Seed, steps and the image tier (full steps) are done; the audio draft policy is pending validation.
 2. Manifest and candidate pools, with a manual pick in the TUI. No new models.
 3. Deterministic hard gates and a local ranking.
 4. Review loop with rounds and thresholds.
