@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "melodias-studio · from YouTube to thumbnail and song",
+    "title": "melodias-studio · original 8-bit content",
     "locale": "en",
     "output": "docs/architecture/arquitectura.html",
     "quality_profile": "showcase",
@@ -10,7 +10,7 @@
       "url": "https://github.com/jd-apprentice/melodias-studio",
       "provider": "github",
       "link_mode": "web",
-      "revision": "79bf5115d65c04a04b71c42894075fdae078c2d5"
+      "revision": "3693af844dbaca83132cd18150b2ef254f30baf9"
     },
     "legend": {
       "entries": {
@@ -25,7 +25,7 @@
       "id": "operador",
       "type": "external",
       "label": "Operator",
-      "sublabel": "URL + vibe",
+      "sublabel": "reference + vibe",
       "pos": [
         30,
         282
@@ -45,7 +45,7 @@
           "path": "src/app.rs",
           "line": 55,
           "end_line": 72,
-          "label": "start needs URL and vibe"
+          "label": "start needs reference and vibe"
         }
       ]
     },
@@ -72,7 +72,7 @@
         {
           "path": "src/app.rs",
           "line": 211,
-          "end_line": 530,
+          "end_line": 471,
           "label": "screen layout"
         }
       ]
@@ -100,7 +100,7 @@
         {
           "path": "src/pipeline.rs",
           "line": 82,
-          "end_line": 239,
+          "end_line": 236,
           "label": "run()"
         }
       ]
@@ -142,8 +142,8 @@
     {
       "id": "youtube",
       "type": "external",
-      "label": "YouTube",
-      "sublabel": "source song",
+      "label": "Reference source",
+      "sublabel": "YouTube URL",
       "pos": [
         500,
         600
@@ -155,8 +155,8 @@
       "sources": [
         {
           "path": "src/media.rs",
-          "line": 39,
-          "end_line": 58,
+          "line": 73,
+          "end_line": 92,
           "label": "yt-dlp invocation"
         }
       ]
@@ -178,13 +178,13 @@
         {
           "path": "src/clients.rs",
           "line": 86,
-          "end_line": 123,
+          "end_line": 125,
           "label": "image prompt"
         },
         {
           "path": "deploy/serve-llm.sh",
-          "line": 16,
-          "end_line": 19,
+          "line": 12,
+          "end_line": 21,
           "label": "model and port"
         }
       ]
@@ -205,14 +205,14 @@
       "sources": [
         {
           "path": "src/clients.rs",
-          "line": 161,
-          "end_line": 182,
+          "line": 164,
+          "end_line": 185,
           "label": "image generation"
         },
         {
           "path": "deploy/serve-sd.sh",
-          "line": 16,
-          "end_line": 23,
+          "line": 12,
+          "end_line": 27,
           "label": "model load"
         }
       ]
@@ -233,13 +233,13 @@
       "sources": [
         {
           "path": "src/clients.rs",
-          "line": 125,
-          "end_line": 159,
+          "line": 128,
+          "end_line": 162,
           "label": "take with reference"
         },
         {
           "path": "deploy/serve-audio.sh",
-          "line": 16,
+          "line": 12,
           "end_line": 18,
           "label": "startup"
         },
@@ -267,8 +267,8 @@
       "sources": [
         {
           "path": "src/pipeline.rs",
-          "line": 200,
-          "end_line": 231,
+          "line": 197,
+          "end_line": 228,
           "label": "copy and metadata"
         }
       ]
@@ -328,7 +328,7 @@
       "id": "media-youtube",
       "from": "media",
       "to": "youtube",
-      "label": "yt-dlp WAV"
+      "label": "reference WAV"
     },
     {
       "id": "media-audio",
@@ -377,9 +377,9 @@
     },
     {
       "dot": "violet",
-      "title": "Source and reference",
+      "title": "Reference source",
       "items": [
-        "yt-dlp extracts a 48 kHz stereo WAV",
+        "yt-dlp pulls the reference as a 48 kHz stereo WAV",
         "The reference is the minute with the highest RMS energy",
         "scp leaves it in /models/ref before the audio stage",
         "The reference conditions timbre, not the melody"
