@@ -9,7 +9,9 @@ The root [README](../README.md) is the landing page. Everything else lives here.
 | Video renderer and effects options | [video.md](video.md) |
 | Environment variables, `config.toml` and lifecycle commands | [configuration.md](configuration.md) |
 | Pipeline, diagram and design notes | [architecture/README.md](architecture/README.md) |
-| Adversary review and video assembly (design) | [adversary-review.md](adversary-review.md) |
+| Design documents (RFCs) | [rfcs/README.md](rfcs/README.md) |
+| Adversary review and video assembly | [rfcs/0001-adversary-review.md](rfcs/0001-adversary-review.md) |
+| Deterministic scoring and feedback loop | [rfcs/0002-deterministic-scoring.md](rfcs/0002-deterministic-scoring.md) |
 | Roadmap | [roadmap.md](roadmap.md) |
 | Project rules for agents | [../AGENTS.md](../AGENTS.md) |
 | Commands | [../Makefile](../Makefile) |

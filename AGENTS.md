@@ -35,4 +35,4 @@ Rust TUI plus CLI (binary `melodias`) for a YouTube channel: a reference URL and
 
 - Defaults point at one GPU box (`192.168.88.38`). `deploy/env.sh` holds host paths, ports and model paths; `serve-{llm,sd,audio}.sh` each answer `start|stop|status`; `make deploy` copies them plus `audio-server.json` to `REMOTE_BIN_DIR`/`REMOTE_CONFIG_DIR`.
 - `docs/configuration.md` is the reference for every env var, config key and output format. `docs/README.md` indexes the docs.
-- `docs/adversary-review.md` is partly implemented: pools, cloud judge and ffmpeg/Remotion assembly exist; local hard gates and the retry loop do not. The pipeline still uses the ffmpeg renderer, not Remotion.
+- `docs/rfcs/0001-adversary-review.md` is partly implemented: pools, cloud judge and ffmpeg/Remotion assembly exist; local hard gates and the retry loop do not. The pipeline still uses the ffmpeg renderer, not Remotion. `docs/rfcs/0002-deterministic-scoring.md` is the proposed scoring, findings, history and retry design and is not implemented.

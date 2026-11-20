@@ -25,7 +25,8 @@ melodias
 | TUI, headless run, output and screenshots | [docs/usage.md](docs/usage.md) |
 | Environment, `config.toml` and lifecycle commands | [docs/configuration.md](docs/configuration.md) |
 | Pipeline, diagram and design notes | [docs/architecture/README.md](docs/architecture/README.md) |
-| Adversary review and video assembly (design) | [docs/adversary-review.md](docs/adversary-review.md) |
+| Design documents (RFCs) | [docs/rfcs/README.md](docs/rfcs/README.md) |
+| Adversary review and video assembly | [docs/rfcs/0001-adversary-review.md](docs/rfcs/0001-adversary-review.md) |
 | Roadmap | [docs/roadmap.md](docs/roadmap.md) |
 | Project rules for agents | [AGENTS.md](AGENTS.md) |
 | Commands | [Makefile](Makefile) |
