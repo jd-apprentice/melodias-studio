@@ -2,21 +2,19 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "melodias-studio · de YouTube a miniatura y loop",
-    "locale": "es",
+    "title": "melodias-studio · from YouTube to thumbnail and loop",
+    "locale": "en",
     "output": "docs/arquitectura.html",
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/jd-apprentice/melodias-studio",
       "provider": "github",
       "link_mode": "web",
-      "revision": "c143be10dc8c1cadf39228780cea88254ce21237"
+      "revision": "b7a271a3b8bf4a4d88c0d0dc1abcbd54289cd4e9"
     },
     "legend": {
       "entries": {
-        "database": {
-          "label": "Almacenamiento"
-        }
+        "database": { "label": "Storage" }
       }
     }
   },
@@ -24,85 +22,37 @@
     {
       "id": "operador",
       "type": "external",
-      "label": "Operador",
+      "label": "Operator",
       "sublabel": "URL + vibe",
-      "pos": [
-        30,
-        282
-      ],
-      "size": [
-        120,
-        60
-      ],
+      "pos": [30, 282],
+      "size": [120, 60],
       "sources": [
-        {
-          "path": "src/app.rs",
-          "line": 20,
-          "end_line": 30,
-          "label": "campos de entrada"
-        },
-        {
-          "path": "src/app.rs",
-          "line": 47,
-          "end_line": 63,
-          "label": "start exige URL y vibe"
-        }
+        { "path": "src/app.rs", "line": 20, "end_line": 30, "label": "input fields" },
+        { "path": "src/app.rs", "line": 49, "end_line": 65, "label": "start needs URL and vibe" }
       ]
     },
     {
       "id": "tui",
       "type": "frontend",
-      "label": "TUI ratatui",
-      "sublabel": "etapas y log",
-      "pos": [
-        240,
-        282
-      ],
-      "size": [
-        130,
-        60
-      ],
+      "label": "ratatui TUI",
+      "sublabel": "stages and log",
+      "pos": [240, 282],
+      "size": [130, 60],
       "sources": [
-        {
-          "path": "src/app.rs",
-          "line": 104,
-          "end_line": 147,
-          "label": "bucle de teclado"
-        },
-        {
-          "path": "src/app.rs",
-          "line": 149,
-          "end_line": 264,
-          "label": "dibujo de etapas"
-        }
+        { "path": "src/app.rs", "line": 106, "end_line": 150, "label": "key loop" },
+        { "path": "src/app.rs", "line": 152, "end_line": 445, "label": "screen layout" }
       ]
     },
     {
       "id": "pipeline",
       "type": "backend",
       "label": "pipeline.rs",
-      "sublabel": "9 etapas secuenciales",
-      "pos": [
-        470,
-        270
-      ],
-      "size": [
-        160,
-        84
-      ],
+      "sublabel": "9 sequential stages",
+      "pos": [470, 270],
+      "size": [160, 84],
       "sources": [
-        {
-          "path": "src/pipeline.rs",
-          "line": 10,
-          "end_line": 20,
-          "label": "orden de etapas"
-        },
-        {
-          "path": "src/pipeline.rs",
-          "line": 69,
-          "end_line": 198,
-          "label": "run()"
-        }
+        { "path": "src/pipeline.rs", "line": 10, "end_line": 20, "label": "stage order" },
+        { "path": "src/pipeline.rs", "line": 69, "end_line": 217, "label": "run()" }
       ]
     },
     {
@@ -110,55 +60,23 @@
       "type": "backend",
       "label": "media.rs",
       "sublabel": "yt-dlp · ffmpeg · scp",
-      "pos": [
-        250,
-        600
-      ],
-      "size": [
-        160,
-        64
-      ],
+      "pos": [250, 600],
+      "size": [160, 64],
       "sources": [
-        {
-          "path": "src/media.rs",
-          "line": 39,
-          "end_line": 58,
-          "label": "descarga WAV"
-        },
-        {
-          "path": "src/media.rs",
-          "line": 62,
-          "end_line": 117,
-          "label": "elección por RMS"
-        },
-        {
-          "path": "src/media.rs",
-          "line": 159,
-          "end_line": 188,
-          "label": "loop y loudnorm"
-        }
+        { "path": "src/media.rs", "line": 39, "end_line": 58, "label": "WAV download" },
+        { "path": "src/media.rs", "line": 62, "end_line": 117, "label": "RMS selection" },
+        { "path": "src/media.rs", "line": 159, "end_line": 188, "label": "loop and loudnorm" }
       ]
     },
     {
       "id": "youtube",
       "type": "external",
       "label": "YouTube",
-      "sublabel": "canción fuente",
-      "pos": [
-        500,
-        600
-      ],
-      "size": [
-        150,
-        64
-      ],
+      "sublabel": "source song",
+      "pos": [500, 600],
+      "size": [150, 64],
       "sources": [
-        {
-          "path": "src/media.rs",
-          "line": 39,
-          "end_line": 58,
-          "label": "invocación de yt-dlp"
-        }
+        { "path": "src/media.rs", "line": 39, "end_line": 58, "label": "yt-dlp invocation" }
       ]
     },
     {
@@ -166,27 +84,11 @@
       "type": "backend",
       "label": "llama-server :8080",
       "sublabel": "Qwen3-4B · 3.4 GB",
-      "pos": [
-        760,
-        130
-      ],
-      "size": [
-        180,
-        64
-      ],
+      "pos": [760, 130],
+      "size": [180, 64],
       "sources": [
-        {
-          "path": "src/clients.rs",
-          "line": 86,
-          "end_line": 124,
-          "label": "prompt de imagen"
-        },
-        {
-          "path": "deploy/serve-llm.sh",
-          "line": 16,
-          "end_line": 19,
-          "label": "modelo y puerto"
-        }
+        { "path": "src/clients.rs", "line": 86, "end_line": 123, "label": "image prompt" },
+        { "path": "deploy/serve-llm.sh", "line": 16, "end_line": 19, "label": "model and port" }
       ]
     },
     {
@@ -194,27 +96,11 @@
       "type": "backend",
       "label": "sd-server :1234",
       "sublabel": "MOSS-Image · 11.4 GB",
-      "pos": [
-        760,
-        280
-      ],
-      "size": [
-        180,
-        64
-      ],
+      "pos": [760, 280],
+      "size": [180, 64],
       "sources": [
-        {
-          "path": "src/clients.rs",
-          "line": 156,
-          "end_line": 177,
-          "label": "generación de imagen"
-        },
-        {
-          "path": "deploy/serve-sd.sh",
-          "line": 16,
-          "end_line": 23,
-          "label": "carga del modelo"
-        }
+        { "path": "src/clients.rs", "line": 161, "end_line": 182, "label": "image generation" },
+        { "path": "deploy/serve-sd.sh", "line": 16, "end_line": 23, "label": "model load" }
       ]
     },
     {
@@ -222,33 +108,12 @@
       "type": "backend",
       "label": "audiocpp_server :8090",
       "sublabel": "ACE-Step · 10 GB",
-      "pos": [
-        760,
-        430
-      ],
-      "size": [
-        180,
-        64
-      ],
+      "pos": [760, 430],
+      "size": [180, 64],
       "sources": [
-        {
-          "path": "src/clients.rs",
-          "line": 126,
-          "end_line": 154,
-          "label": "toma con referencia"
-        },
-        {
-          "path": "deploy/serve-audio.sh",
-          "line": 16,
-          "end_line": 18,
-          "label": "arranque"
-        },
-        {
-          "path": "deploy/audio-server.json",
-          "line": 1,
-          "end_line": 14,
-          "label": "modelo ace-step"
-        }
+        { "path": "src/clients.rs", "line": 125, "end_line": 159, "label": "take with reference" },
+        { "path": "deploy/serve-audio.sh", "line": 16, "end_line": 18, "label": "startup" },
+        { "path": "deploy/audio-server.json", "line": 1, "end_line": 18, "label": "ace-step model" }
       ]
     },
     {
@@ -256,21 +121,10 @@
       "type": "database",
       "label": "output/<slug>",
       "sublabel": "audio.mp3 · PNG · meta.json",
-      "pos": [
-        40,
-        600
-      ],
-      "size": [
-        150,
-        64
-      ],
+      "pos": [40, 600],
+      "size": [150, 64],
       "sources": [
-        {
-          "path": "src/pipeline.rs",
-          "line": 162,
-          "end_line": 198,
-          "label": "copia y metadatos"
-        }
+        { "path": "src/pipeline.rs", "line": 179, "end_line": 209, "label": "copy and metadata" }
       ]
     }
   ],
@@ -278,108 +132,60 @@
     {
       "kind": "region",
       "label": "VM 192.168.88.38 · Tesla P40 24 GB",
-      "wraps": [
-        "llm",
-        "sd",
-        "audio"
-      ]
+      "wraps": ["llm", "sd", "audio"]
     }
   ],
   "connections": [
-    {
-      "id": "operador-tui",
-      "from": "operador",
-      "to": "tui",
-      "label": "URL + vibe",
-      "variant": "emphasis"
-    },
-    {
-      "id": "tui-pipeline",
-      "from": "tui",
-      "to": "pipeline",
-      "label": "progreso por etapa"
-    },
-    {
-      "id": "pipeline-llm",
-      "from": "pipeline",
-      "to": "llm",
-      "label": "prompt imagen"
-    },
-    {
-      "id": "pipeline-sd",
-      "from": "pipeline",
-      "to": "sd",
-      "label": "PNG 1280x720",
-      "variant": "emphasis"
-    },
-    {
-      "id": "pipeline-audio",
-      "from": "pipeline",
-      "to": "audio",
-      "label": "toma 210 s"
-    },
-    {
-      "id": "pipeline-media",
-      "from": "pipeline",
-      "to": "media",
-      "label": "descarga · loop"
-    },
-    {
-      "id": "media-youtube",
-      "from": "media",
-      "to": "youtube",
-      "label": "yt-dlp WAV"
-    },
-    {
-      "id": "media-audio",
-      "from": "media",
-      "to": "audio",
-      "label": "scp referencia"
-    },
-    {
-      "id": "pipeline-salida",
-      "from": "pipeline",
-      "to": "salida",
-      "label": "audio.mp3 + meta"
-    }
+    { "id": "operador-tui", "from": "operador", "to": "tui", "label": "URL + vibe", "variant": "emphasis" },
+    { "id": "tui-pipeline", "from": "tui", "to": "pipeline", "label": "per-stage progress" },
+    { "id": "pipeline-llm", "from": "pipeline", "to": "llm", "label": "image prompt" },
+    { "id": "pipeline-sd", "from": "pipeline", "to": "sd", "label": "PNG 1280x720", "variant": "emphasis" },
+    { "id": "pipeline-audio", "from": "pipeline", "to": "audio", "label": "210 s take" },
+    { "id": "pipeline-media", "from": "pipeline", "to": "media", "label": "download · loop" },
+    { "id": "media-youtube", "from": "media", "to": "youtube", "label": "yt-dlp WAV" },
+    { "id": "media-audio", "from": "media", "to": "audio", "label": "scp reference" },
+    { "id": "pipeline-salida", "from": "pipeline", "to": "salida", "label": "audio.mp3 + meta" }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "Contratos HTTP",
+      "title": "HTTP contracts",
       "items": [
-        "llama-server /v1/chat/completions escribe el prompt de imagen",
-        "sd-server /v1/images/generations devuelve b64_json 1280x720",
-        "audiocpp /v1/tasks/run genera con reference_audio",
-        "Cada etapa espera su health check hasta 180 s"
+        "llama-server /v1/chat/completions writes the image prompt",
+        "sd-server /v1/images/generations returns b64_json at 1280x720",
+        "audiocpp /v1/tasks/run generates with reference_audio",
+        "Each stage waits for its health check, up to 180 s"
       ]
     },
     {
       "dot": "amber",
-      "title": "Orden de VRAM",
+      "title": "VRAM order",
       "items": [
-        "Una sola P40 de 24 GB atiende los tres servicios",
-        "llama-server (3.4 GB) y sd-server (11.4 GB) conviven",
-        "sd-server se detiene antes de cargar ACE-Step (10 GB)"
+        "One 24 GB P40 serves all three services",
+        "llama-server (3.4 GB) and sd-server (11.4 GB) coexist",
+        "The LLM and sd-server stop before ACE-Step loads",
+        "mem_saver keeps ACE-Step near 14.7 GB between requests"
       ]
     },
     {
       "dot": "emerald",
-      "title": "Loop y salida",
+      "title": "Loop and output",
       "items": [
-        "audio.mp3 320 kbps, -15 LUFS, crossfade fijo de 3 s",
-        "El PNG se valida leyendo su cabecera",
-        "meta.json guarda seed, prompts y parámetros",
-        "work/ conserva fuente, referencia y toma"
+        "audio.mp3, 320 kbps, -15 LUFS, fixed 3 s crossfade",
+        "Every track is instrumental; vocals are in the negative prompt",
+        "The PNG is validated by reading its header",
+        "meta.json stores the seed, prompt and parameters",
+        "work/ keeps the source, reference and take"
       ]
     },
     {
       "dot": "violet",
-      "title": "Fuente y referencia",
+      "title": "Source and reference",
       "items": [
-        "yt-dlp extrae WAV 48 kHz estéreo",
-        "La referencia es el minuto de mayor energía RMS",
-        "scp la deja en /models/ref antes de la etapa de audio"
+        "yt-dlp extracts a 48 kHz stereo WAV",
+        "The reference is the minute with the highest RMS energy",
+        "scp leaves it in /models/ref before the audio stage",
+        "The reference conditions timbre, not the melody"
       ]
     }
   ]
