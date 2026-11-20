@@ -32,6 +32,18 @@ The headless mode auto-selects candidate 1 for both pools, so use the TUI when y
 
 The image stage reports its own duration and the size of the PNG it got back, and warns when the server returned something other than the requested size.
 
+## Video
+
+Every finished run leaves `video.mp4` next to the audio. If you have a run from before the video stage, assemble it without touching the GPU:
+
+```bash
+melodias video output/<slug>
+# or
+make video DIR=output/<slug>
+```
+
+The video is the chosen still with a slow zoom, a few floating pixel particles, the audio waveform and edge fades, at `VIDEO_WIDTH` x `VIDEO_HEIGHT` (1920x1080 by default).
+
 ## Make shortcuts
 
 | Target | What it does |
@@ -54,6 +66,7 @@ output/<slug>/
 ├── thumbnail.png  # the chosen 1280x720 candidate
 ├── meta.json      # candidates, seeds, prompts, selection and source URL
 ├── candidates/    # N image candidates and N audio drafts
+├── video.mp4      # 1920x1080, image + particles + waveform
 └── work/          # source, reference and final take
 ```
 

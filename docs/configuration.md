@@ -24,11 +24,13 @@ cp config.example.toml ~/.config/melodias-studio/config.toml
 | `GPU_LABEL` | `local models` | label in the header and the splash |
 | `AUDIO_STYLE` | `8-bit chiptune` | fixed medium added to every audio prompt |
 | `IMAGE_STYLE` | `8-bit pixel art` | style pinned in the image prompt system message |
+| `IMAGE_NEGATIVE_PROMPT` | `glowing eyes, neon eyes, empty eyes, oversaturated eyes, text, watermark, signature, extra fingers, deformed hands` | negative prompt sent to sd-server |
 | `DURATION_SEC` | `210` | take length |
 | `STEPS` | `32` | diffusion steps |
 | `GUIDANCE` | `5` | CFG |
 | `SAMPLER` | `heun` | `euler` or `heun` |
 | `WIDTH` / `HEIGHT` | `1280` / `720` | thumbnail size |
+| `VIDEO_WIDTH` / `VIDEO_HEIGHT` | `1920` / `1080` | final video canvas |
 | `IMAGE_STEPS` | `20` | diffusion steps for the thumbnail |
 | `IMAGE_SEED` | random | fixed seed to reproduce a thumbnail |
 | `CANDIDATES` | `3` | candidates per modality |

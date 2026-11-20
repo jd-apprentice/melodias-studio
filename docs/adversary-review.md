@@ -1,6 +1,6 @@
 # Adversary review and video assembly
 
-Status: in progress. Phases 1 and 2 are implemented: image seeds and steps, candidate pools, manifest data and the manual review. Critics, the judge and the assembly are not.
+Status: in progress. Phases 1 and 2 are implemented, and so is the deterministic video assembly. Local critics, the ranking loop and the cloud judge are not.
 
 ## Why
 
@@ -119,7 +119,7 @@ Optional and off by default.
 
 ## Assembly
 
-The final video is the chosen still, an audio-reactive effect and the mastered track.
+The final video is the chosen still, an audio-reactive effect and the mastered track. A first version is implemented in `media::assemble_video`; the assembly agent that picks a preset is still pending.
 
 - Canvas 1920x1080, H.264 video and AAC audio.
 - The still gets a slow zoom or parallax; no cuts, since the image is static.

@@ -12,7 +12,7 @@ Rust TUI (ratatui) that turns a YouTube URL plus a vibe into `output/<vibe-slug>
 
 ## Wiring
 
-- `src/pipeline.rs` owns the 10-stage order in `STAGES` (image pool, download/reference, audio drafts, review, final take, master/save). The TUI and the headless reporter consume the same `Msg` channel and answer the review through the `Sender<Selection>` returned by `pipeline::spawn`, so adding a stage means touching `STAGES` and `run()`, plus the hardcoded `1/10` assertions in `src/main.rs`.
+- `src/pipeline.rs` owns the 11-stage order in `STAGES` (image pool, download/reference, audio drafts, review, final take, master/save, video). The TUI and the headless reporter consume the same `Msg` channel and answer the review through the `Sender<Selection>` returned by `pipeline::spawn`, so adding a stage means touching `STAGES` and `run()`, plus the hardcoded `1/11` assertions in `src/main.rs`.
 - Config precedence is env var > `config.toml` (`MELODIAS_CONFIG`, else `$XDG_CONFIG_HOME/melodias-studio/config.toml`) > defaults. `src/clients.rs` calls llama-server (`/v1/chat/completions`), sd-server (`/v1/images/generations`) and audiocpp (`/v1/tasks/run`); `src/media.rs` shells out to `yt-dlp`, `ffmpeg`, `ffprobe`, `ssh` and `scp`.
 - Child process output goes to the run log through `media::set_child_log` (TUI: `output/run-<unix>.log`, headless: `MELODIAS_LOG`). Use `attach_output`/`attach_stderr` for new subprocesses so they do not fight the TUI.
 - `docs/architecture/arquitectura.html` is generated from `docs/architecture/arquitectura.json` with the archify skill; edit the JSON, not the HTML.

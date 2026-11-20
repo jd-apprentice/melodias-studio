@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 
 use crate::{clients, config::Config, media};
 
-pub const STAGES: [&str; 10] = [
+pub const STAGES: [&str; 11] = [
     "Image prompt",
     "Prepare image",
     "Image pool",
@@ -18,6 +18,7 @@ pub const STAGES: [&str; 10] = [
     "Review",
     "Final take",
     "Master + save",
+    "Video",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,6 +50,7 @@ pub struct Selection {
 pub struct Outcome {
     pub audio: PathBuf,
     pub image: PathBuf,
+    pub video: PathBuf,
     pub seed: u32,
     pub image_prompt: String,
 }
@@ -334,6 +336,19 @@ fn run(
         std::fs::copy(&mp3, &final_audio)?;
         let final_image = root.join("thumbnail.png");
         std::fs::copy(&selected_image.file, &final_image)?;
+        Ok((final_audio, final_image))
+    })?;
+
+    let video = step(tx, 10, || {
+        let video = media::assemble_video(cfg, &final_image, &final_audio, &root)?;
+        let megabytes = std::fs::metadata(&video)
+            .map(|meta| meta.len())
+            .unwrap_or(0) as f64
+            / 1e6;
+        log(
+            tx,
+            format!("video: {} ({megabytes:.1} MB)", video.display()),
+        );
 
         let image_candidates: Vec<_> = images
             .iter()
@@ -388,15 +403,20 @@ fn run(
                 "master": master,
                 "reference": remote,
                 "file": final_audio.display().to_string(),
+            },
+            "video": {
+                "file": video.display().to_string(),
+                "size": format!("{}x{}", cfg.video_width, cfg.video_height),
             }
         });
         std::fs::write(root.join("meta.json"), serde_json::to_vec_pretty(&meta)?)?;
-        Ok((final_audio, final_image))
+        Ok(video)
     })?;
 
     Ok(Outcome {
         audio: final_audio,
         image: final_image,
+        video,
         seed: selected_audio.seed,
         image_prompt,
     })

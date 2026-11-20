@@ -14,8 +14,7 @@ use crossterm::style::Stylize;
 
 use pipeline::{Msg, Selection, State};
 
-const USAGE: &str =
-    "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)";
+const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias video <dir>      (assemble a finished run)";
 
 fn main() -> io::Result<()> {
     let cfg = config::Config::from_env();
@@ -26,6 +25,9 @@ fn main() -> io::Result<()> {
     {
         println!("{USAGE}");
         return Ok(());
+    }
+    if args.first().is_some_and(|arg| arg == "video") {
+        return run_video(cfg, &args);
     }
     if !args.is_empty() {
         return run_headless(cfg, &args);
@@ -116,6 +118,9 @@ fn run_headless(cfg: config::Config, args: &[String]) -> io::Result<()> {
                 let image = format!("✔ thumbnail · {}", outcome.image.display());
                 let colored = out.pretty.then(|| image.as_str().green().to_string());
                 out.line(&image, colored);
+                let video = format!("✔ video · {}", outcome.video.display());
+                let colored = out.pretty.then(|| video.as_str().green().to_string());
+                out.line(&video, colored);
                 return Ok(());
             }
             Msg::Done(Err(err)) => {
@@ -124,6 +129,32 @@ fn run_headless(cfg: config::Config, args: &[String]) -> io::Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+/// Assembles the video of a finished run without touching the GPU.
+fn run_video(cfg: config::Config, args: &[String]) -> io::Result<()> {
+    let [_, target] = args else {
+        eprintln!("usage: melodias video <output-dir>");
+        std::process::exit(2);
+    };
+    let requested = std::path::PathBuf::from(target);
+    let dir = if requested.is_dir() {
+        requested
+    } else {
+        cfg.out_dir.join(target)
+    };
+    let image = dir.join("thumbnail.png");
+    let audio = dir.join("audio.mp3");
+    for path in [&image, &audio] {
+        if !path.is_file() {
+            eprintln!("missing {}", path.display());
+            std::process::exit(2);
+        }
+    }
+    let video = media::assemble_video(&cfg, &image, &audio, &dir)
+        .map_err(|error| io::Error::other(format!("{error:#}")))?;
+    println!("video: {}", video.display());
     Ok(())
 }
 
@@ -210,8 +241,8 @@ mod tests {
         out.log_line("image prompt: pixel art castle");
 
         let text = std::fs::read_to_string(&path).unwrap();
-        assert!(text.contains("▶ 1/10 Image prompt"));
-        assert!(text.contains("✔ 1/10 Image prompt"));
+        assert!(text.contains("▶ 1/11 Image prompt"));
+        assert!(text.contains("✔ 1/11 Image prompt"));
         assert!(text.contains("   · image prompt: pixel art castle"));
         let _ = std::fs::remove_file(path);
     }

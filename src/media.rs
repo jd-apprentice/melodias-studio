@@ -236,6 +236,70 @@ pub fn master_take(cfg: &crate::config::Config, src: &Path, dir: &Path) -> Resul
     Ok(out)
 }
 
+/// Builds the final video from the chosen still and the mastered track: a slow
+/// zoom, floating pixel particles, an audio waveform and edge fades.
+pub fn assemble_video(
+    cfg: &crate::config::Config,
+    image: &Path,
+    audio: &Path,
+    dir: &Path,
+) -> Result<PathBuf> {
+    let total = duration_secs(audio)?;
+    if total < 5.0 {
+        bail!("the track is {total:.1} s long, too short to assemble a video");
+    }
+    let width = cfg.video_width.max(320) & !1;
+    let height = cfg.video_height.max(240) & !1;
+    let band = (height / 5).max(120);
+    let wave_height = (height / 6).max(90);
+    let fade_out_start = (total - 3.0).max(0.0);
+    let graph = format!(
+        "[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},\
+         zoompan=z='min(zoom+0.00015,1.08)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={width}x{height}:fps=30,\
+         drawbox=x='iw*0.06+90*sin(t*0.6)':y='ih*0.2+60*cos(t*0.8)':w=14:h=14:color=0x56d4dd@0.35:t=fill,\
+         drawbox=x='iw*0.83+70*sin(t*0.5+2)':y='ih*0.16+80*cos(t*0.7+1)':w=10:h=10:color=0xe3b341@0.40:t=fill,\
+         drawbox=x='iw*0.47+120*sin(t*0.4+4)':y='ih*0.11+40*cos(t*0.6+3)':w=18:h=18:color=0xf0f6fc@0.25:t=fill,\
+         drawbox=x='iw*0.30+60*sin(t*0.3+1)':y='ih*0.55+50*cos(t*0.5+2)':w=8:h=8:color=0x56d4dd@0.30:t=fill,\
+         drawbox=x='iw*0.70+80*sin(t*0.7+3)':y='ih*0.65+40*cos(t*0.4+4)':w=12:h=12:color=0xe3b341@0.30:t=fill,\
+         drawbox=y=ih-{band}:w=iw:h={band}:color=black@0.22:t=fill[bg];\
+         [1:a]asplit=2[aout][awave];\
+         [awave]showwaves=s={width}x{wave_height}:mode=cline:rate=30:colors=0x56d4dd,format=rgba,colorchannelmixer=aa=0.55[wave];\
+         [bg][wave]overlay=0:H-h-30:format=auto,\
+         fade=t=in:st=0:d=1.5,fade=t=out:st={fade_out_start:.3}:d=3,format=yuv420p[v]"
+    );
+    let out = dir.join("video.mp4");
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(["-v", "error", "-y", "-loop", "1", "-framerate", "30", "-i"])
+        .arg(image)
+        .arg("-i")
+        .arg(audio)
+        .args(["-filter_complex", &graph, "-map", "[v]", "-map", "[aout]"])
+        .args(["-t"])
+        .arg(format!("{total:.3}"))
+        .args([
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "21",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-movflags",
+            "+faststart",
+            "-shortest",
+        ])
+        .arg(&out);
+    attach_output(&mut cmd);
+    let status = cmd.status().context("assembling the video")?;
+    if !status.success() {
+        bail!("ffmpeg failed while assembling the video");
+    }
+    Ok(out)
+}
+
 /// Runs an optional shell command on the GPU host. Empty commands are skipped.
 pub fn ssh_run(cfg: &crate::config::Config, command: &str) -> Result<()> {
     if command.trim().is_empty() {

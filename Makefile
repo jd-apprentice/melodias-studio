@@ -8,7 +8,7 @@ PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 BIN := target/release/melodias
 
-.PHONY: help run generate build check fmt test install uninstall deploy status log clean
+.PHONY: help run generate video build check fmt test install uninstall deploy status log clean
 
 help:
 	@printf '%s\n' \
@@ -17,6 +17,7 @@ help:
 	  '  make run                             TUI' \
 	  '  make generate URL=... VIBE="..."     headless pipeline, log in output/' \
 	  '  make install                         builds and installs ~/.local/bin/melodias' \
+	  '  make video DIR=output/<slug>         assemble video.mp4 from a finished run' \
 	  '  make uninstall                       removes the installed binary' \
 	  '  make log                             last lines of the newest log' \
 	  '  make check                           fmt + build + clippy -D warnings + tests' \
@@ -37,6 +38,10 @@ generate:
 
 build:
 	$(CARGO) build
+
+video:
+	@test -n "$(DIR)" || { echo 'missing DIR, for example: make video DIR=output/<slug>'; exit 2; }
+	$(CARGO) run --release -- video "$(DIR)"
 
 check:
 	$(CARGO) fmt --check

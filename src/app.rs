@@ -222,6 +222,12 @@ impl App {
                             ));
                             self.logs
                                 .push(format!("thumbnail: {}", outcome.image.display()));
+                            write_line(
+                                &mut self.log,
+                                &format!("✔ video · {}", outcome.video.display()),
+                            );
+                            self.logs
+                                .push(format!("video: {}", outcome.video.display()));
                             self.logs.push(format!("prompt: {}", outcome.image_prompt));
                         }
                         Err(err) => {
@@ -696,7 +702,7 @@ mod tests {
         app.logs = vec![
             "working in output/epic-8-bit-emotional-artcore-orchestra".to_string(),
             "audio seed 198759983 · image seed 424242 · 3 candidates".to_string(),
-            "image prompt: anime girl with glowing pixel eyes, 8-bit forest, warm sunset".to_string(),
+            "image prompt: anime girl with soft green eyes, 8-bit forest, warm sunset".to_string(),
             "image candidate 1/3: output/epic-8-bit-emotional-artcore-orchestra/candidates/image-01.png (seed 424242, 2.2 MB)".to_string(),
             "image pool: 3 candidates in 14.8 min".to_string(),
             "source: output/epic-8-bit-emotional-artcore-orchestra/work/source.wav".to_string(),

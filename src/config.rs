@@ -27,6 +27,8 @@ pub struct Config {
     pub audio_style: String,
     /// Fixed style for the thumbnail prompt, pinned in the system message.
     pub image_style: String,
+    /// Negative prompt for sd-server, sent through sd_cpp_extra_args.
+    pub image_negative_prompt: String,
     /// Steers ACE-Step away from voices; the channel only publishes instrumentals.
     pub audio_negative_prompt: String,
     /// Label shown in the header and the splash, for example "Tesla P40".
@@ -37,6 +39,8 @@ pub struct Config {
     pub sampler: String,
     pub width: u32,
     pub height: u32,
+    pub video_width: u32,
+    pub video_height: u32,
     pub image_steps: u32,
     /// Optional fixed seed to reproduce an image candidate.
     pub image_seed: Option<u32>,
@@ -102,6 +106,11 @@ impl Config {
             ),
             audio_style: pick(env("AUDIO_STYLE"), file.audio_style, "8-bit chiptune"),
             image_style: pick(env("IMAGE_STYLE"), file.image_style, "8-bit pixel art"),
+            image_negative_prompt: pick(
+                env("IMAGE_NEGATIVE_PROMPT"),
+                file.image_negative_prompt,
+                "glowing eyes, neon eyes, empty eyes, oversaturated eyes, text, watermark, signature, extra fingers, deformed hands",
+            ),
             audio_negative_prompt: pick(
                 env("AUDIO_NEGATIVE_PROMPT"),
                 file.audio_negative_prompt,
@@ -114,6 +123,8 @@ impl Config {
             sampler: pick(env("SAMPLER"), file.sampler, "heun"),
             width: pick_parsed(env("WIDTH"), file.width, 1280),
             height: pick_parsed(env("HEIGHT"), file.height, 720),
+            video_width: pick_parsed(env("VIDEO_WIDTH"), file.video_width, 1920),
+            video_height: pick_parsed(env("VIDEO_HEIGHT"), file.video_height, 1080),
             image_steps: pick_parsed(env("IMAGE_STEPS"), file.image_steps, 20),
             image_seed: env("IMAGE_SEED")
                 .and_then(|value| value.parse().ok())
@@ -185,6 +196,7 @@ struct FileConfig {
     audio_stop_cmd: Option<String>,
     audio_style: Option<String>,
     image_style: Option<String>,
+    image_negative_prompt: Option<String>,
     audio_negative_prompt: Option<String>,
     gpu_label: Option<String>,
     duration_sec: Option<u32>,
@@ -193,6 +205,8 @@ struct FileConfig {
     sampler: Option<String>,
     width: Option<u32>,
     height: Option<u32>,
+    video_width: Option<u32>,
+    video_height: Option<u32>,
     image_steps: Option<u32>,
     image_seed: Option<u32>,
     candidates: Option<u32>,
@@ -239,6 +253,7 @@ mod tests {
             audio_negative_prompt = "vocals"
             audio_style = "lofi"
             image_style = "watercolor"
+            image_negative_prompt = "glowing eyes"
             image_steps = 12
             image_seed = 42
             candidates = 3
@@ -251,6 +266,7 @@ mod tests {
         assert_eq!(file.audio_negative_prompt.as_deref(), Some("vocals"));
         assert_eq!(file.audio_style.as_deref(), Some("lofi"));
         assert_eq!(file.image_style.as_deref(), Some("watercolor"));
+        assert_eq!(file.image_negative_prompt.as_deref(), Some("glowing eyes"));
         assert_eq!(file.image_steps, Some(12));
         assert_eq!(file.image_seed, Some(42));
         assert_eq!(file.candidates, Some(3));

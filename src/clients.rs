@@ -88,8 +88,9 @@ pub fn ask_image_prompt(cfg: &Config, vibe: &str) -> Result<String> {
     let system = format!(
         "You write prompts for a text-to-image model. Reply with ONE line of at most 60 \
 words, in English, no quotes, no explanation. Describe a 16:9 YouTube thumbnail in {} \
-style: one anime character in a scene, detailed background, nostalgic cozy mood. Never \
-mention audio, BPM, tempo, music, songs, text or watermarks.",
+style: one anime character in a scene, detailed background, nostalgic cozy mood. The \
+character has natural eyes with a visible iris and pupil; never glowing, neon or empty \
+eyes. Never mention audio, BPM, tempo, music, songs, text or watermarks.",
         cfg.image_style
     );
     let user =
@@ -174,17 +175,20 @@ pub fn generate_audio(cfg: &Config, take: AudioRequest<'_>) -> Result<Vec<u8>> {
 
 /// sd-server strips this block before generation. It carries the native
 /// stable-diffusion.cpp fields that the OpenAI endpoint does not expose.
-fn with_extra_args(prompt: &str, seed: u32, steps: u32) -> String {
-    let extra = json!({
+fn with_extra_args(prompt: &str, seed: u32, steps: u32, negative_prompt: &str) -> String {
+    let mut extra = json!({
         "seed": seed,
         "sample_params": { "sample_steps": steps }
     });
+    if !negative_prompt.trim().is_empty() {
+        extra["negative_prompt"] = json!(negative_prompt);
+    }
     format!("{prompt} <sd_cpp_extra_args>{extra}</sd_cpp_extra_args>")
 }
 
 pub fn generate_image(cfg: &Config, prompt: &str, seed: u32) -> Result<Vec<u8>> {
     let url = format!("{}/v1/images/generations", cfg.sd_url.trim_end_matches('/'));
-    let prompt = with_extra_args(prompt, seed, cfg.image_steps);
+    let prompt = with_extra_args(prompt, seed, cfg.image_steps, &cfg.image_negative_prompt);
     let body = json!({
         "prompt": prompt,
         "n": 1,
@@ -212,10 +216,11 @@ mod tests {
 
     #[test]
     fn image_extra_args_carry_seed_and_steps() {
-        let prompt = with_extra_args("pixel art", 42, 12);
+        let prompt = with_extra_args("pixel art", 42, 12, "glowing eyes");
         assert!(prompt.starts_with("pixel art <sd_cpp_extra_args>"));
         assert!(prompt.contains("\"seed\":42"));
         assert!(prompt.contains("\"sample_steps\":12"));
+        assert!(prompt.contains("\"negative_prompt\":\"glowing eyes\""));
         assert!(prompt.ends_with("</sd_cpp_extra_args>"));
     }
 }
