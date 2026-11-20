@@ -1,4 +1,4 @@
-![melodias-studio](docs/assets/tui-splash.png)
+![melodias-studio](docs/assets/banner.png)
 
 # melodias-studio
 
