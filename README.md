@@ -4,8 +4,6 @@
 
 A Rust TUI that generates 8-bit thumbnails, original three to four minute instrumental chiptunes and a 1080p video for a YouTube channel, using local models.
 
-A reference track can guide the timbre. The thumbnail and the music are generated from scratch, not converted from the source. Each run produces three thumbnail candidates and three audio drafts, then pauses for you to pick the pair.
-
 ## Quick Start
 
 Requires Rust 1.85+, `yt-dlp`, `ffmpeg`, `ffprobe` and three local HTTP services. See [setup](docs/setup.md) for the service contract and an example deployment.
