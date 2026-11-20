@@ -45,7 +45,7 @@ The scripts in [`deploy/`](deploy/) start, stop and report the three services. T
 make deploy
 ```
 
-That copies `env.sh`, the scripts and `audio-server.json` to `/home/ubuntu/bin` on `SSH_HOST`, then fixes permissions. Each script answers `start`, `stop` and `status`.
+That copies `env.sh`, the scripts and `audio-server.json` to `REMOTE_BIN_DIR` and `REMOTE_CONFIG_DIR` (`/home/ubuntu/bin` and `/home/ubuntu` by default) on `SSH_HOST`, then fixes permissions. If you move them, update the lifecycle commands in your config so the app calls the new paths. Each script answers `start`, `stop` and `status`.
 
 ## Install
 
@@ -65,6 +65,14 @@ melodias
 - `q` quits, only once the run finished.
 
 Each stage shows its state, the progress bar tracks how many are done, and the log prints every step, including the prompt the LLM wrote and the seed of the take.
+
+The screenshots in this README come from the test backend, not from a manual capture. Regenerate them with:
+
+```bash
+DUMP_TUI_HTML_DIR=/tmp/tui cargo test draws_without_leaving_the_terminal
+```
+
+That writes `tui.html` and `tui-splash.html`; render them with a browser at the size you need.
 
 ### Headless run
 
@@ -171,8 +179,13 @@ node ~/.agents/skills/archify/bin/archify.mjs finalize architecture docs/arquite
 - **The LLM writes the thumbnail prompt.** The vibe goes in as a concept and comes back as an English prompt, with the pixel-art style pinned in the system prompt.
 - **Stages fail loudly and stop the run.** Each step reports its own error in the log so you know which service to look at.
 
+## Future: adversary review
+
+The next architectural step is optional and not implemented yet. It generates several candidates per modality, lets local critics score and pick them within a fixed number of rounds, and optionally sends the shortlist to a stronger cloud judge before assembling the final video. See [`docs/adversary-review.md`](docs/adversary-review.md) for the flow, the scoring signals, the judge contract and the cost and VRAM tradeoffs.
+
 ## Roadmap
 
+- [ ] Adversary review: N candidates, local critics, optional cloud judge and video assembly ([design](docs/adversary-review.md)).
 - [ ] Cancel a run in progress and retry a single stage.
 - [ ] Read the video title to name the output folder instead of the vibe.
 - [ ] Write the video entry straight into `jd-llm/projects/melodias8bit/videos/`.

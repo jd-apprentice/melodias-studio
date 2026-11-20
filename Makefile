@@ -1,6 +1,8 @@
 SHELL := /bin/bash
 CARGO ?= cargo
 SSH_HOST ?= root@192.168.88.38
+REMOTE_BIN_DIR ?= /home/ubuntu/bin
+REMOTE_CONFIG_DIR ?= /home/ubuntu
 LOG_DIR ?= output
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
@@ -59,13 +61,13 @@ uninstall:
 	@echo "removed $(BINDIR)/melodias"
 
 deploy:
-	ssh $(SSH_HOST) 'mkdir -p /home/ubuntu/bin'
-	scp deploy/env.sh deploy/serve-*.sh $(SSH_HOST):/home/ubuntu/bin/
-	scp deploy/audio-server.json $(SSH_HOST):/home/ubuntu/
-	ssh $(SSH_HOST) 'chmod +x /home/ubuntu/bin/serve-*.sh'
+	ssh $(SSH_HOST) 'mkdir -p $(REMOTE_BIN_DIR)'
+	scp deploy/env.sh deploy/serve-*.sh $(SSH_HOST):$(REMOTE_BIN_DIR)/
+	scp deploy/audio-server.json $(SSH_HOST):$(REMOTE_CONFIG_DIR)/
+	ssh $(SSH_HOST) 'chmod +x $(REMOTE_BIN_DIR)/serve-*.sh'
 
 status:
-	@ssh $(SSH_HOST) 'for s in llm sd audio; do printf "%-6s " "$$s"; /home/ubuntu/bin/serve-$$s.sh status 2>&1 | tail -1; done'
+	@ssh $(SSH_HOST) 'for s in llm sd audio; do printf "%-6s " "$$s"; $(REMOTE_BIN_DIR)/serve-$$s.sh status 2>&1 | tail -1; done'
 
 log:
 	@latest=$$(ls -t $(LOG_DIR)/*.log 2>/dev/null | head -1); \
