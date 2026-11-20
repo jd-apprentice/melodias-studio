@@ -99,6 +99,7 @@ They run over SSH between stages. The defaults point at the `deploy/` scripts; o
 | `SD_STOP_CMD` | `/home/ubuntu/bin/serve-sd.sh stop` | before the audio stage |
 | `AUDIO_START_CMD` | `/home/ubuntu/bin/serve-audio.sh start` | before the audio stage |
 | `AUDIO_STOP_CMD` | `/home/ubuntu/bin/serve-audio.sh stop` | after the take, even if it failed |
+| `AUDIO_NEGATIVE_PROMPT` | `vocals, singing, voice, choir, lyrics, humming, vocal chops, spoken word` | steering text that keeps voices out |
 
 The app waits for `/health` on the service it just started, up to 180 s, before moving on.
 
@@ -114,6 +115,8 @@ output/<slug>/
 
 ## Architecture diagram
 
+[![Pipeline architecture](docs/arquitectura.png)](docs/arquitectura.html)
+
 [`docs/arquitectura.html`](docs/arquitectura.html) is a self-contained interactive map of the pipeline, the three GPU services and the VRAM order. It opens offline in a browser and needs no server. The source is [`docs/arquitectura.json`](docs/arquitectura.json), so the diagram can be regenerated with the [Archify](https://github.com/tt-a1i/archify) skill:
 
 ```bash
@@ -122,7 +125,8 @@ node ~/.agents/skills/archify/bin/archify.mjs finalize architecture docs/arquite
 
 ## Design notes
 
-- **The reference is an excerpt, not the whole song.** ACE-Step samples three 10 s windows from the file, so the app picks the minute with the highest average energy and skips intros and breakdowns.
+- **The reference is an excerpt, not the whole song.** ACE-Step samples three 10 s windows from the file, so the app picks the minute with the highest average energy and skips intros and breakdowns. It conditions timbre and style, not the melody: the result is not a cover of the source.
+- **Every track is instrumental.** The vibe is sent as `<vibe>, instrumental` and `options.negative_prompt` lists vocals, singing, choir, lyrics and humming. ACE-Step uses that text as the unconditional CFG prompt, so it steers away from voices instead of hoping the caption is ignored.
 - **The audio parameters travel inside `options`.** `/v1/tasks/run` only forwards the nested `options` object to the ACE-Step parser, so `duration_sec`, `reference_audio` and `sampler_mode` at the top level of `request` are silently dropped. Sent inside `options`, `duration_sec` returns an exact length.
 - **The loop is built in ffmpeg.** A 3 s crossfade between the end of the outro and the start of the intro. It does not depend on the model or on its tempo.
 - **The LLM writes the thumbnail prompt.** The vibe goes in as a concept and comes back as an English prompt, with the pixel-art style pinned in the system prompt.

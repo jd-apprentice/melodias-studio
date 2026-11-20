@@ -138,7 +138,8 @@ pub fn generate_audio(cfg: &Config, prompt: &str, reference: &str, seed: u32) ->
             "options": {
                 "reference_audio": reference,
                 "duration_sec": cfg.duration_sec,
-                "sampler_mode": cfg.sampler
+                "sampler_mode": cfg.sampler,
+                "negative_prompt": cfg.audio_negative_prompt
             }
         }
     });

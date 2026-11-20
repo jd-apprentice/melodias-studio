@@ -21,6 +21,8 @@ pub struct Config {
     pub sd_stop_cmd: String,
     pub audio_start_cmd: String,
     pub audio_stop_cmd: String,
+    /// Steers ACE-Step away from voices; the channel only publishes instrumentals.
+    pub audio_negative_prompt: String,
     pub duration_sec: u32,
     pub steps: u32,
     pub guidance: f32,
@@ -46,6 +48,10 @@ impl Config {
             sd_stop_cmd: env_or("SD_STOP_CMD", "/home/ubuntu/bin/serve-sd.sh stop"),
             audio_start_cmd: env_or("AUDIO_START_CMD", "/home/ubuntu/bin/serve-audio.sh start"),
             audio_stop_cmd: env_or("AUDIO_STOP_CMD", "/home/ubuntu/bin/serve-audio.sh stop"),
+            audio_negative_prompt: env_or(
+                "AUDIO_NEGATIVE_PROMPT",
+                "vocals, singing, voice, choir, lyrics, humming, vocal chops, spoken word",
+            ),
             duration_sec: env_or("DURATION_SEC", "210").parse().unwrap_or(210),
             steps: env_or("STEPS", "32").parse().unwrap_or(32),
             guidance: env_or("GUIDANCE", "5").parse().unwrap_or(5.0),

@@ -131,6 +131,11 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
     let remote = step(tx, 5, || media::push_reference(cfg, &reference, &slug))?;
     log(tx, format!("referencia remota: {remote}"));
 
+    // The vibe is the only audio prompt. The word "instrumental" plus the
+    // negative prompt keep voices out of every delivery.
+    let audio_prompt = format!("{vibe}, instrumental");
+    log(tx, format!("prompt audio: {audio_prompt}"));
+
     let audio_result = step(tx, 6, || {
         // The timbre reference pushes ACE-Step past what fits next to the 4B,
         // so both the image model and the LLM go away before the audio stage.
@@ -138,7 +143,7 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
         media::ssh_run(cfg, &cfg.llm_stop_cmd)?;
         media::ssh_run(cfg, &cfg.audio_start_cmd)?;
         clients::wait_audio(cfg, Duration::from_secs(180))?;
-        clients::generate_audio(cfg, vibe, &remote, seed)
+        clients::generate_audio(cfg, &audio_prompt, &remote, seed)
     });
     // Release the P40 even when the take failed, so a later image stage can load.
     let stopped = media::ssh_run(cfg, &cfg.audio_stop_cmd);
@@ -182,6 +187,8 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
             "seed": seed,
             "audio": {
                 "model": cfg.audio_model,
+                "prompt": audio_prompt,
+                "negative_prompt": cfg.audio_negative_prompt,
                 "steps": cfg.steps,
                 "guidance": cfg.guidance,
                 "sampler": cfg.sampler,
