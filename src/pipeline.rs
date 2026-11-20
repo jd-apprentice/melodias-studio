@@ -207,7 +207,6 @@ fn run(
         cfg.audio_negative_prompt.clone(),
     );
     log(tx, format!("prompt audio: {}", audio_prompt.positive));
-    let image_passed = image_pool_passed(&image_scored);
 
     let drafts_result = step(tx, 6, || {
         // The timbre reference pushes ACE-Step past what fits next to the 4B,
@@ -224,7 +223,6 @@ fn run(
             reference: &remote,
             seed,
             count: count as usize,
-            image_passed,
         })
     });
     let (audio_scored, audio_patches, audio_rounds, audio_reason) = match drafts_result {
@@ -533,12 +531,6 @@ fn best_index(pool: &[Scored]) -> Option<usize> {
     best
 }
 
-fn image_pool_passed(pool: &[Scored]) -> bool {
-    best_index(pool)
-        .and_then(|index| pool[index].side.as_ref())
-        .is_some_and(|side| side.score >= score::TARGET_TECHNICAL)
-}
-
 /// Eight points of the 50-point audio side, in normalized terms.
 fn audio_lost_enough(score: f64) -> bool {
     (100.0 - score) / 2.0 >= 8.0
@@ -785,11 +777,10 @@ struct AudioPool<'a> {
     reference: &'a str,
     seed: u32,
     count: usize,
-    image_passed: bool,
 }
 
-/// Generates the drafts and runs at most one audio round, only when the image
-/// side already passes and the audio lost eight points or more of its 50.
+/// Generates the drafts and runs at most one audio round when the audio lost
+/// eight points or more of its 50. The image side does not gate it.
 fn audio_pool(request: AudioPool<'_>) -> Result<(Vec<Scored>, Vec<retry::Applied>, u32, String)> {
     let AudioPool {
         cfg,
@@ -799,7 +790,6 @@ fn audio_pool(request: AudioPool<'_>) -> Result<(Vec<Scored>, Vec<retry::Applied
         reference,
         seed,
         count,
-        image_passed,
     } = request;
     let budget = cfg.score_rounds.min(retry::AUDIO_ROUNDS);
     let target = cfg.duration_sec as f64;
@@ -817,9 +807,7 @@ fn audio_pool(request: AudioPool<'_>) -> Result<(Vec<Scored>, Vec<retry::Applied
     let mut patches = Vec::new();
     let mut used = BTreeSet::new();
     let mut rounds = 0;
-    let mut reason = if !image_passed {
-        "the image side has not passed".to_string()
-    } else if budget == 0 {
+    let mut reason = if budget == 0 {
         "the audio retry is disabled".to_string()
     } else {
         String::new()
@@ -827,10 +815,6 @@ fn audio_pool(request: AudioPool<'_>) -> Result<(Vec<Scored>, Vec<retry::Applied
     log_best(tx, "audio", &pool);
 
     for round in 1..=budget {
-        if !image_passed {
-            reason = "the image side has not passed".to_string();
-            break;
-        }
         let Some(best) = best_index(&pool) else {
             reason = "no audio candidate could be scored".to_string();
             break;

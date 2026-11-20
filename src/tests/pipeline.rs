@@ -53,8 +53,6 @@ fn the_best_index_skips_unscored_candidates() {
         scored("c.png", Some(85.0), Vec::new()),
     ];
     assert_eq!(best_index(&pool), Some(2));
-    assert!(image_pool_passed(&pool));
-    assert!(!image_pool_passed(&pool[..2]));
     assert_eq!(best_index(&pool[..1]), None);
 }
 

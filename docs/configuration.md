@@ -115,7 +115,7 @@ Older databases are migrated on the next write: the outcome columns are added an
 
 ### Retry loop
 
-The run scores each side before the review. If the best image is under 85, it applies the patch for the worst actionable finding and regenerates that side while sd-server is still up, up to two rounds. The audio side gets one round at most, and only when the image side already passes and the audio lost eight points or more of its 50.
+The run scores each side before the review. If the best image is under 85, it applies the patch for the worst actionable finding and regenerates that side while sd-server is still up, up to two rounds. The audio side gets one round at most when it lost eight points or more of its 50; a weak image does not block it.
 
 - `SCORE_ROUNDS` caps the rounds per side; the image budget is two and the audio budget is one.
 - The same finding code never triggers twice. Codes that share a patch (`AUD_HIGHS` and `AUD_CENTROID`) count as one.

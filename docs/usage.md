@@ -93,7 +93,7 @@ The text check uses `tesseract`. Without it, `IMG_TEXT` is skipped and the image
 
 The run scores the pool before the review and, when a side misses, regenerates only that side with a patched prompt. The patch is fixed data: `IMG_PALETTE` appends the limited-palette text, `IMG_GLOW` adds the neon negative and the natural-eye positive, and the audio codes append the chiptune, build or continuity text.
 
-- The image side runs up to two rounds while sd-server is up; the audio side runs at most one, only if the image side already passes and the audio lost eight points or more.
+- The image side runs up to two rounds while sd-server is up; the audio side runs at most one when it lost eight points or more, independently of the image result.
 - The same code never triggers twice, and the pool stops growing at nine candidates per side.
 - `SCORE_ROUNDS` caps the rounds per side; set it to `0` to keep the phase 1 behavior and skip the loop.
 - The review opens on the judge suggestion or, without one, on the best-scored pair. The log shows each patch, the scores after each round and why the loop stopped.
