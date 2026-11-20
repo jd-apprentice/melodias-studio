@@ -6,16 +6,27 @@ use serde_json::json;
 
 use crate::config::Config;
 
-fn client() -> Result<reqwest::blocking::Client> {
+fn short_client() -> Result<reqwest::blocking::Client> {
     reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(1800))
+        .timeout(Duration::from_secs(10))
+        .connect_timeout(Duration::from_secs(5))
+        .build()
+        .context("creando cliente HTTP")
+}
+
+/// One generation on the P40 can take half an hour, so generation requests get
+/// their own budget instead of the short one used by the health probes.
+fn long_client() -> Result<reqwest::blocking::Client> {
+    reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(3600))
+        .connect_timeout(Duration::from_secs(10))
         .build()
         .context("creando cliente HTTP")
 }
 
 pub fn check_audio(cfg: &Config) -> Result<()> {
     let url = format!("{}/health", cfg.audio_url.trim_end_matches('/'));
-    let body = client()?
+    let body = short_client()?
         .get(&url)
         .send()
         .and_then(|r| r.error_for_status())
@@ -29,7 +40,7 @@ pub fn check_audio(cfg: &Config) -> Result<()> {
 
 pub fn check_llm(cfg: &Config) -> Result<()> {
     let url = format!("{}/health", cfg.llm_url.trim_end_matches('/'));
-    client()?
+    short_client()?
         .get(&url)
         .send()
         .and_then(|r| r.error_for_status())
@@ -39,7 +50,7 @@ pub fn check_llm(cfg: &Config) -> Result<()> {
 
 pub fn check_sd(cfg: &Config) -> Result<()> {
     let url = format!("{}/v1/models", cfg.sd_url.trim_end_matches('/'));
-    client()?
+    short_client()?
         .get(&url)
         .send()
         .and_then(|r| r.error_for_status())
@@ -90,7 +101,7 @@ nostalgic cozy mood. Never mention audio, BPM, tempo, music, songs, text or wate
             {"role": "user", "content": user}
         ]
     });
-    let resp: serde_json::Value = client()?
+    let resp: serde_json::Value = long_client()?
         .post(&url)
         .json(&body)
         .send()
@@ -127,7 +138,7 @@ pub fn generate_audio(cfg: &Config, prompt: &str, reference: &str, seed: u32) ->
             "sampler_mode": cfg.sampler
         }
     });
-    let resp: serde_json::Value = client()?
+    let resp: serde_json::Value = long_client()?
         .post(&url)
         .json(&body)
         .send()
@@ -150,7 +161,7 @@ pub fn generate_image(cfg: &Config, prompt: &str) -> Result<Vec<u8>> {
         "size": format!("{}x{}", cfg.width, cfg.height),
         "output_format": "png"
     });
-    let resp: serde_json::Value = client()?
+    let resp: serde_json::Value = long_client()?
         .post(&url)
         .json(&body)
         .send()
