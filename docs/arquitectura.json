@@ -10,7 +10,7 @@
       "url": "https://github.com/jd-apprentice/melodias-studio",
       "provider": "github",
       "link_mode": "web",
-      "revision": "70aedc8bc6ebe0c0cafda60241601f5e2c77a416"
+      "revision": "79bf5115d65c04a04b71c42894075fdae078c2d5"
     },
     "legend": {
       "entries": {
@@ -38,13 +38,13 @@
         {
           "path": "src/app.rs",
           "line": 22,
-          "end_line": 32,
+          "end_line": 35,
           "label": "input fields"
         },
         {
           "path": "src/app.rs",
-          "line": 53,
-          "end_line": 69,
+          "line": 55,
+          "end_line": 72,
           "label": "start needs URL and vibe"
         }
       ]
@@ -65,14 +65,14 @@
       "sources": [
         {
           "path": "src/app.rs",
-          "line": 158,
-          "end_line": 202,
+          "line": 164,
+          "end_line": 209,
           "label": "key loop"
         },
         {
           "path": "src/app.rs",
-          "line": 204,
-          "end_line": 510,
+          "line": 211,
+          "end_line": 530,
           "label": "screen layout"
         }
       ]
@@ -100,7 +100,7 @@
         {
           "path": "src/pipeline.rs",
           "line": 82,
-          "end_line": 234,
+          "end_line": 239,
           "label": "run()"
         }
       ]
@@ -121,20 +121,20 @@
       "sources": [
         {
           "path": "src/media.rs",
-          "line": 39,
-          "end_line": 58,
+          "line": 73,
+          "end_line": 92,
           "label": "WAV download"
         },
         {
           "path": "src/media.rs",
-          "line": 62,
-          "end_line": 117,
+          "line": 96,
+          "end_line": 169,
           "label": "RMS selection"
         },
         {
           "path": "src/media.rs",
-          "line": 200,
-          "end_line": 225,
+          "line": 206,
+          "end_line": 237,
           "label": "master and loudnorm"
         }
       ]
@@ -267,8 +267,8 @@
       "sources": [
         {
           "path": "src/pipeline.rs",
-          "line": 195,
-          "end_line": 226,
+          "line": 200,
+          "end_line": 231,
           "label": "copy and metadata"
         }
       ]
