@@ -2,6 +2,8 @@ mod app;
 mod banner;
 mod clients;
 mod config;
+mod dashboard;
+mod history;
 mod judge;
 mod media;
 mod pipeline;
@@ -17,7 +19,7 @@ use crossterm::style::Stylize;
 
 use pipeline::{Msg, Selection, State};
 
-const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias image <dir>      (regenerate the thumbnail of a run)\n       melodias judge <dir>      (review a finished run with the judge)\n       melodias score <dir>      (score a finished run, no GPU)\n       melodias render <dir>     (produced video with Remotion)\n       melodias video <dir>      (fast video with ffmpeg)";
+const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias image <dir>      (regenerate the thumbnail of a run)\n       melodias judge <dir>      (review a finished run with the judge)\n       melodias score <dir>      (score a finished run, no GPU)\n       melodias history [view]   (runs, findings or trend, from the local database)\n       melodias dashboard        (local read-only charts over the database)\n       melodias render <dir>     (produced video with Remotion)\n       melodias video <dir>      (fast video with ffmpeg)";
 
 fn main() -> io::Result<()> {
     let cfg = config::Config::from_env();
@@ -37,6 +39,12 @@ fn main() -> io::Result<()> {
     }
     if args.first().is_some_and(|arg| arg == "score") {
         return run_score(cfg, &args);
+    }
+    if args.first().is_some_and(|arg| arg == "history") {
+        return run_history(cfg, &args);
+    }
+    if args.first().is_some_and(|arg| arg == "dashboard") {
+        return run_dashboard(cfg, &args);
     }
     if args.first().is_some_and(|arg| arg == "render") {
         return run_render(cfg, &args);
@@ -155,6 +163,40 @@ fn run_headless(cfg: config::Config, args: &[String]) -> io::Result<()> {
     Ok(())
 }
 
+/// Serves the read-only dashboard on localhost. It never writes the database.
+fn run_dashboard(cfg: config::Config, args: &[String]) -> io::Result<()> {
+    let mut port = dashboard::DEFAULT_PORT;
+    let mut limit = dashboard::DEFAULT_LIMIT;
+    let mut index = 1;
+    while let Some(arg) = args.get(index) {
+        match arg.as_str() {
+            "--port" => port = next_value(args, &mut index, "--port"),
+            "--limit" => limit = next_value(args, &mut index, "--limit"),
+            other => {
+                eprintln!("usage: melodias dashboard [--port {port}] [--limit {limit}]");
+                eprintln!("unknown option: {other}");
+                std::process::exit(2);
+            }
+        }
+        index += 1;
+    }
+    if port == 0 {
+        eprintln!("--port must be between 1 and 65535");
+        std::process::exit(2);
+    }
+    dashboard::serve(cfg.db_path.clone(), port, limit.max(1))
+        .map_err(|error| io::Error::other(format!("{error:#}")))
+}
+
+fn next_value<T: std::str::FromStr>(args: &[String], index: &mut usize, flag: &str) -> T {
+    *index += 1;
+    let Some(value) = args.get(*index).and_then(|value| value.parse::<T>().ok()) else {
+        eprintln!("{flag} needs a valid value");
+        std::process::exit(2);
+    };
+    value
+}
+
 /// Scores a finished run with the deterministic rubric: every candidate and
 /// the final pair. No GPU, no cloud, and the only write is work/score.json.
 fn run_score(cfg: config::Config, args: &[String]) -> io::Result<()> {
@@ -171,15 +213,65 @@ fn run_score(cfg: config::Config, args: &[String]) -> io::Result<()> {
     };
     let dir = std::fs::canonicalize(&dir)?;
     let run = score::score_run(&dir).map_err(|error| io::Error::other(format!("{error:#}")))?;
-    let work = dir.join("work");
-    std::fs::create_dir_all(&work)?;
-    std::fs::write(work.join("score.json"), serde_json::to_vec_pretty(&run)?)?;
+    let path =
+        score::write_json(&dir, &run).map_err(|error| io::Error::other(format!("{error:#}")))?;
     if as_json {
         println!("{}", serde_json::to_string_pretty(&run)?);
         return Ok(());
     }
     print_score(&run);
-    println!("wrote {}", work.join("score.json").display());
+    println!("wrote {}", path.display());
+    Ok(())
+}
+
+/// Reads the local history database. Never writes to it.
+fn run_history(cfg: config::Config, args: &[String]) -> io::Result<()> {
+    let mut mode = "runs";
+    let mut format = history::Format::Table;
+    let mut by = history::By::Day;
+    let mut index = 1;
+    while let Some(arg) = args.get(index) {
+        match arg.as_str() {
+            "--json" => format = history::Format::Json,
+            "--csv" => format = history::Format::Csv,
+            "--by" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    eprintln!("usage: melodias history trend --by day|week|month");
+                    std::process::exit(2);
+                };
+                by = history::By::parse(value).unwrap_or_else(|| {
+                    eprintln!("unknown period: {value}, expected day, week or month");
+                    std::process::exit(2);
+                });
+            }
+            other if other.starts_with('-') => {
+                eprintln!("unknown option: {other}");
+                std::process::exit(2);
+            }
+            other => mode = other,
+        }
+        index += 1;
+    }
+    let db = &cfg.db_path;
+    if !db.is_file() && format == history::Format::Table {
+        println!("no history at {}", db.display());
+        println!("the next finished run writes it, or use make backfill");
+        return Ok(());
+    }
+    let text = (|| -> anyhow::Result<String> {
+        match mode {
+            "runs" => history::render_runs(&history::recent(db, 20)?, format),
+            "findings" => history::render_findings(&history::findings(db)?, format),
+            "trend" => history::render_trend(&history::trend(db, by)?, format),
+            other => {
+                eprintln!("unknown history view: {other}, expected runs, findings or trend");
+                std::process::exit(2);
+            }
+        }
+    })()
+    .map_err(|error| io::Error::other(format!("{error:#}")))?;
+    println!("{}", text.trim_end_matches('\n'));
     Ok(())
 }
 

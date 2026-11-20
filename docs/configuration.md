@@ -21,6 +21,7 @@ cp config.example.toml ~/.config/melodias-studio/config.toml
 | `SSH_HOST` | `root@192.168.88.38` | target for the reference and lifecycle commands; empty runs locally |
 | `REMOTE_REF_DIR` | `/models/ref` | remote folder for references |
 | `OUT_DIR` | `output` | local output |
+| `MELODIAS_DB` | `history.db` next to `config.toml` | SQLite file behind `melodias history` |
 | `GPU_LABEL` | `local models` | label in the header and the splash |
 | `AUDIO_STYLE` | `8-bit chiptune` | fixed medium added to every audio prompt |
 | `IMAGE_STYLE` | `8-bit pixel art` | style pinned in the image prompt system message |
@@ -76,6 +77,31 @@ A run costs about $0.03 of the allowance for 20 to 30 s of judge time, next to r
 The channel medium is a hard rule: the audio prompt always gets `AUDIO_STYLE`, even when the vibe does not mention it, and the image system message always pins `IMAGE_STYLE`. The vibe adds mood and references, not the medium.
 
 An empty environment variable is ignored, so to run locally use `ssh_host = ""` in `config.toml` instead of `SSH_HOST=`.
+
+## History
+
+Every finished run scores itself and appends the result to a local SQLite database, again without a GPU or a cloud call. The file is `history.db` next to `config.toml` (`$XDG_CONFIG_HOME/melodias-studio/history.db` by default). `MELODIAS_DB` or the `db_path` key move it, for example into a checkout during development:
+
+```bash
+MELODIAS_DB=./local.db melodias 'https://www.youtube.com/watch?v=...' 'epic 8-bit orchestral finale'
+```
+
+The write happens after the video stage, with the score computed from the finished `thumbnail.png` and `audio.mp3`; `work/score.json` gets the same report. A failed write is a line in the run log and never aborts the run. The database uses WAL, one writer at a time, and is created with mode 0600. `.gitignore` covers `*.db`, `*.db-wal` and `*.db-shm` so a database inside the repo stays untracked.
+
+Each `runs` row carries the `rubric` version, so a trend only compares runs scored with the same one. The pool candidates and the findings of the final pair are stored next to it.
+
+`melodias history` reads the file and never writes:
+
+| Command | What it shows |
+| --- | --- |
+| `melodias history` | the last 20 runs |
+| `melodias history --json` / `--csv` | the same rows for a script |
+| `melodias history findings` | hits, average and total lost points per finding code |
+| `melodias history trend --by day` | average technical and total per day, also `week` or `month` |
+
+`make history ARGS=findings` is the shortcut. Runs made before the write existed are added with `make backfill`, which writes the same tables.
+
+`melodias dashboard` serves a read-only page over the same file at `http://127.0.0.1:7373/`. It binds localhost only, opens the database for reading and polls it once a minute, so new runs appear without a reload. `--port` changes the address and `--limit` the run window (200 by default). The page is a Rust binary plus static files in `dashboard/`; there is no Node and no build step.
 
 ## GPU lifecycle commands
 

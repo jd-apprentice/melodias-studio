@@ -1,6 +1,6 @@
 # melodias-studio
 
-Rust TUI plus CLI (binary `melodias`) for a YouTube channel: a reference URL and a vibe produce `output/<slug>/` with `thumbnail.png`, `audio.mp3`, `video.mp4`, `meta.json`, `candidates/` and `work/`. No args opens the TUI; `<url> <vibe>` runs the same pipeline headless; `image|judge|render|video <dir>` act on a finished run.
+Rust TUI plus CLI (binary `melodias`) for a YouTube channel: a reference URL and a vibe produce `output/<slug>/` with `thumbnail.png`, `audio.mp3`, `video.mp4`, `meta.json`, `candidates/` and `work/`. No args opens the TUI; `<url> <vibe>` runs the same pipeline headless; `image|judge|score|history|render|video <dir>` act on a finished run.
 
 ## Commands
 
@@ -8,6 +8,8 @@ Rust TUI plus CLI (binary `melodias`) for a YouTube channel: a reference URL and
 - Single test: `cargo test <name>`. All tests are inline `#[cfg(test)]` modules and need no services, GPU or network.
 - `make run` (TUI), `make generate URL='...' VIBE='...'` (release build + headless, log in `output/run-<timestamp>.log`), `make log`.
 - `make backfill [ARGS=--replace]` scores the finished runs in `output/` into `~/.config/melodias-studio/history.db` (`MELODIAS_DB` overrides it); it needs `jq`, `sqlite3`, ImageMagick and `tesseract`.
+- `make history [ARGS='findings']` reads that database (`melodias history [runs|findings|trend] [--json|--csv] [--by day|week|month]`). It never writes; the pipeline appends a row at the end of every run.
+- `make dashboard` serves the read-only charts at `http://127.0.0.1:7373/`; `melodias dashboard [--port N] [--limit N]` is the same without the release build. It reads the database on every request and never writes it.
 - `make image|judge|score|render|video DIR=output/<slug>` map to the subcommands. `video` only rebuilds the ffmpeg video; `image` regenerates a thumbnail through sd-server and rebuilds that video; `render` needs `cd video && pnpm install` and a run from the repo root (Remotion, about 12 min); `judge` needs an API key.
 - The screenshots in `docs/` come from the test backend, not a manual capture: `DUMP_TUI_HTML_DIR=/tmp/tui cargo test draws_without_leaving_the_terminal`. `PRINT_TUI=1` prints the buffer as ASCII.
 - `make deploy` and `make status` need SSH access to the GPU host; the rest runs locally.
@@ -15,7 +17,7 @@ Rust TUI plus CLI (binary `melodias`) for a YouTube channel: a reference URL and
 ## Wiring
 
 - `src/pipeline.rs` owns the 11-stage order in `STAGES` (prompt, prepare, image pool, download, reference, upload, drafts, review, final take, master, video). The TUI and headless reporter share the `Msg` channel and answer the review through the `Sender<Selection>` returned by `pipeline::spawn`. Adding a stage touches `STAGES` and `run()`, plus the hardcoded `1/11` assertions in the test in `src/main.rs`.
-- Entry points: `src/main.rs` dispatches TUI/headless/subcommands and is the headless reporter; `src/app.rs` is the TUI; `src/judge.rs` is the optional cloud judge; `src/score.rs` is the deterministic rubric (`score-v1`) behind `melodias score`, which writes `work/score.json`; `src/clients.rs` speaks to llama-server, sd-server and audiocpp; `src/media.rs` shells out to `yt-dlp`, `ffmpeg`, `ffprobe`, `ssh` and `scp`.
+- Entry points: `src/main.rs` dispatches TUI/headless/subcommands and is the headless reporter; `src/app.rs` is the TUI; `src/judge.rs` is the optional cloud judge; `src/score.rs` is the deterministic rubric (`score-v1`) behind `melodias score`, which writes `work/score.json`; `src/history.rs` owns the SQLite schema, the insert at the end of a run and the read views behind `melodias history`; `src/dashboard.rs` serves the read-only page with the assets in `dashboard/` embedded at compile time; `src/clients.rs` speaks to llama-server, sd-server and audiocpp; `src/media.rs` shells out to `yt-dlp`, `ffmpeg`, `ffprobe`, `ssh` and `scp`.
 - Config precedence is env var > `config.toml` (`MELODIAS_CONFIG`, else `$XDG_CONFIG_HOME/melodias-studio/config.toml`) > defaults. The judge is enabled by default but no-ops without a key; `auto` prefers `OPENCODE_API_KEY`, otherwise `OPENROUTER_API_KEY`. A failed judge is logged and does not abort the run.
 - The default judge is one `generateContent` call to `gemini-4-argon` through OpenCode Go: it sees 768 px JPEGs, hears 15 s MP3s and returns the whole verdict in about 30 s. `JUDGE_PROVIDER=openrouter` keeps the older two-stage path with the free omni and reasoner models. `work/judge/verdict.json` records provider, model, usage, the reports and the selection; the measured cost is in `docs/configuration.md`.
 - Headless mode accepts the judge suggestion when present; without one it picks candidate 1. The TUI starts the review on the suggestion and still allows `1-9`/`Tab`/`Enter` overrides.
@@ -31,9 +33,13 @@ Rust TUI plus CLI (binary `melodias`) for a YouTube channel: a reference URL and
 - The run is not resumable and a failed stage aborts it. `output/` and `target/` are gitignored; generated `docs/` images and HTML are committed. Candidate images and drafts live in `output/<slug>/candidates/`.
 - `melodias render` resolves `video/` from the current directory, copies the still and track into ignored `video/public/current/`, writes ignored `video/props.json`, and keeps a previous `video.mp4` as `video-ffmpeg.mp4`.
 - `melodias judge` only prints the verdict and writes `work/judge/verdict.json`; it does not update `meta.json`. The OpenCode Go endpoint needs `x-opencode-session` and a non-generic User-Agent, otherwise it answers 400 `MissingSessionID`. OpenRouter audio input needs at least $0.50 of balance.
+- The history write happens after the video and re-scores the run with `ffmpeg` (about 20 s more). It is best effort: a failure is one log line and the run stays valid. The write also refreshes `work/score.json`. `melodias history` on a machine without the file prints a hint and exits 0; it never creates the database.
+- `scripts/backfill-history.sh` writes the same tables as the pipeline but attaches findings to the selected pool candidate, while the pipeline stores the final pair's findings with a null `candidate_id`. Both feed the same per-code views.
+- `rusqlite` is pinned to 0.32 with `bundled` because 0.43 needs Rust 1.89. Keep 1.85 until the repo floor moves.
+- The dashboard binds `127.0.0.1` only, opens the database read-only (with a read-write fallback for a WAL edge case) and never migrates it. It polls once a minute and has no Node or build step; the HTML, CSS and JS are `include_str!` so editing them needs a rebuild. A database without the expected tables answers 500 and logs the SQL error; a missing file renders an empty state.
 
 ## Ops
 
 - Defaults point at one GPU box (`192.168.88.38`). `deploy/env.sh` holds host paths, ports and model paths; `serve-{llm,sd,audio}.sh` each answer `start|stop|status`; `make deploy` copies them plus `audio-server.json` to `REMOTE_BIN_DIR`/`REMOTE_CONFIG_DIR`.
 - `docs/configuration.md` is the reference for every env var, config key and output format. `docs/README.md` indexes the docs.
-- `docs/rfcs/0001-adversary-review.md` is partly implemented: pools, cloud judge and ffmpeg/Remotion assembly exist; local hard gates and the retry loop do not. The pipeline still uses the ffmpeg renderer, not Remotion. `docs/rfcs/0002-deterministic-scoring.md` is partly implemented: the rubric and `melodias score` exist; the database write, `melodias history` and the retry loop do not.
+- `docs/rfcs/0001-adversary-review.md` is partly implemented: pools, cloud judge and ffmpeg/Remotion assembly exist; local hard gates and the retry loop do not. The pipeline still uses the ffmpeg renderer, not Remotion. `docs/rfcs/0002-deterministic-scoring.md` is partly implemented: the rubric, `melodias score`, the history write and `melodias history` exist; the retry loop and the dashboard do not.

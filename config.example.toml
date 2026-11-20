@@ -74,3 +74,5 @@
 
 # --- Output ----------------------------------------------------------------
 # out_dir = "output"
+# The local SQLite history. Defaults to history.db next to this file.
+# db_path = "/home/you/.config/melodias-studio/history.db"

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>melodias · history</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div id="banner" class="banner" role="alert" hidden></div>
+
+    <header class="top">
+      <div class="brand">
+        <span id="live" class="live" title="waiting for the first update"></span>
+        <h1>melodias <span>history</span></h1>
+      </div>
+      <div class="meta">
+        <span id="db" class="mono"></span>
+        <span id="stamp" class="mono"></span>
+      </div>
+    </header>
+
+    <main>
+      <section class="cards" id="cards" aria-label="Totals"></section>
+
+      <p id="empty" class="empty" hidden>
+        <strong>No runs yet.</strong>
+        <span id="empty-detail"></span>
+      </p>
+
+      <section class="panel" id="score-panel">
+        <div class="panel-head">
+          <h2>Score over runs</h2>
+          <div id="legend" class="legend" aria-hidden="true"></div>
+        </div>
+        <svg
+          id="score-chart"
+          class="chart"
+          viewBox="0 0 900 320"
+          role="img"
+          aria-label="Technical, editorial and total score per run"
+        ></svg>
+      </section>
+
+      <section class="panel" id="findings-panel">
+        <div class="panel-head">
+          <h2>What costs the most</h2>
+          <p class="hint">lost points per finding code, all runs in the window</p>
+        </div>
+        <svg
+          id="findings-chart"
+          class="chart"
+          viewBox="0 0 900 120"
+          role="img"
+          aria-label="Lost points per finding code"
+        ></svg>
+      </section>
+
+      <section class="panel" id="runs-panel">
+        <div class="panel-head">
+          <h2>Runs</h2>
+          <p class="hint" id="runs-hint"></p>
+        </div>
+        <div class="table-wrap">
+          <table id="runs"></table>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span id="footer"></span>
+    </footer>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
