@@ -111,6 +111,14 @@ output/<slug>/
 └── work/          # source, reference and raw take
 ```
 
+## Architecture diagram
+
+[`docs/arquitectura.html`](docs/arquitectura.html) is a self-contained interactive map of the pipeline, the three GPU services and the VRAM order. It opens offline in a browser and needs no server. The source is [`docs/arquitectura.json`](docs/arquitectura.json), so the diagram can be regenerated with the [Archify](https://github.com/tt-a1i/archify) skill:
+
+```bash
+node ~/.agents/skills/archify/bin/archify.mjs finalize architecture docs/arquitectura.json docs/arquitectura.html --repo-root . --quality showcase
+```
+
 ## Design notes
 
 - **The reference is an excerpt, not the whole song.** ACE-Step samples three 10 s windows from the file, so the app picks the minute with the highest average energy and skips intros and breakdowns.
