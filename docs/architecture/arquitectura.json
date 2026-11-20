@@ -10,7 +10,7 @@
       "url": "https://github.com/jd-apprentice/melodias-studio",
       "provider": "github",
       "link_mode": "web",
-      "revision": "8e4380ef50aa595bf48dd0d6e5bc78d1dcf0b960"
+      "revision": "c464808c4bfaca716733389a3ad7803ede7f28e4"
     },
     "legend": {
       "entries": {
@@ -276,8 +276,8 @@
     {
       "id": "judge",
       "type": "cloud",
-      "label": "OpenRouter judge",
-      "sublabel": "omni + ultra (free)",
+      "label": "OpenCode Go judge",
+      "sublabel": "Gemini 4 Argon · one call",
       "pos": [
         470,
         60
@@ -289,9 +289,15 @@
       "sources": [
         {
           "path": "src/judge.rs",
-          "line": 1,
-          "end_line": 312,
-          "label": "two-stage judge"
+          "line": 95,
+          "end_line": 186,
+          "label": "decide: provider, evidence, verdict"
+        },
+        {
+          "path": "src/judge.rs",
+          "line": 349,
+          "end_line": 400,
+          "label": "generateContent request"
         }
       ]
     }
@@ -400,7 +406,7 @@
       "items": [
         "candidates/ keeps N images and N audio drafts",
         "3 images at 20 steps and 3 drafts at 60 s by default",
-        "The judge preselects the pair; the TUI can override it",
+        "The judge (Gemini 4 Argon via OpenCode Go) preselects the pair; the TUI can override it",
         "video.mp4 with ffmpeg or Remotion (overlays, waveform, branding)",
         "melodias image/render/video rebuild pieces without the GPU",
         "meta.json stores candidates, seeds, judge and selection"
