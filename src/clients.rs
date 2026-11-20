@@ -123,7 +123,21 @@ eyes. Never mention audio, BPM, tempo, music, songs, text or watermarks.",
     if text.is_empty() {
         bail!("the LLM returned an empty prompt");
     }
-    Ok(text)
+    Ok(sanitize_eye_prompt(&text))
+}
+
+/// The 4B likes to write "glowing red eyes" for dramatic prompts, and the image
+/// model renders it literally. Keep the eyes natural without touching the rest
+/// of the scene.
+pub fn sanitize_eye_prompt(prompt: &str) -> String {
+    prompt
+        .replace("glowing red eyes", "soft green eyes")
+        .replace("Glowing red eyes", "soft green eyes")
+        .replace("glowing eyes", "soft eyes")
+        .replace("Glowing eyes", "soft eyes")
+        .replace("neon eyes", "soft eyes")
+        .replace("empty eyes", "soft eyes")
+        .replace("red eyes", "soft green eyes")
 }
 
 /// One take: drafts and the final share the same request shape, only the
@@ -213,6 +227,12 @@ pub fn generate_image(cfg: &Config, prompt: &str, seed: u32) -> Result<Vec<u8>> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn glowing_eyes_are_sanitized() {
+        let prompt = sanitize_eye_prompt("a girl with glowing red eyes in a forest");
+        assert_eq!(prompt, "a girl with soft green eyes in a forest");
+    }
 
     #[test]
     fn image_extra_args_carry_seed_and_steps() {

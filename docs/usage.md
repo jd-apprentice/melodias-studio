@@ -34,6 +34,8 @@ The image stage reports its own duration and the size of the PNG it got back, an
 
 ## Video
 
+See [video.md](video.md) for how the renderer works and which options exist for richer effects.
+
 Every finished run leaves `video.mp4` next to the audio. If you have a run from before the video stage, assemble it without touching the GPU:
 
 ```bash
@@ -42,7 +44,19 @@ melodias video output/<slug>
 make video DIR=output/<slug>
 ```
 
-The video is the chosen still with a slow zoom, a few floating pixel particles, the audio waveform and edge fades, at `VIDEO_WIDTH` x `VIDEO_HEIGHT` (1920x1080 by default).
+The video is the chosen still with a slow zoom, glowing pixel particles, the audio waveform and edge fades, at `VIDEO_WIDTH` x `VIDEO_HEIGHT` (1920x1080 by default).
+
+### Regenerate the thumbnail
+
+To replace the chosen image of a finished run, reuse its prompt and seed, and rebuild the video without touching the rest:
+
+```bash
+melodias image output/<slug>
+# or
+make image DIR=output/<slug>
+```
+
+It keeps the old file as `thumbnail-old.png`, appends the new image to `candidates/`, updates `meta.json` and rebuilds `video.mp4`. The current prompt is sanitized so the eyes stay natural and the configured image negative prompt is applied.
 
 ## Make shortcuts
 

@@ -236,8 +236,194 @@ pub fn master_take(cfg: &crate::config::Config, src: &Path, dir: &Path) -> Resul
     Ok(out)
 }
 
+struct Particle {
+    x: f64,
+    y: f64,
+    sway: f64,
+    bob: f64,
+    speed: f64,
+    phase: f64,
+    size: f64,
+    color: &'static str,
+    sparkle: bool,
+}
+
+const PARTICLES: [Particle; 10] = [
+    Particle {
+        x: 0.10,
+        y: 0.18,
+        sway: 40.0,
+        bob: 25.0,
+        speed: 0.50,
+        phase: 0.0,
+        size: 18.0,
+        color: "0x56d4dd",
+        sparkle: false,
+    },
+    Particle {
+        x: 0.24,
+        y: 0.35,
+        sway: 55.0,
+        bob: 30.0,
+        speed: 0.70,
+        phase: 1.7,
+        size: 14.0,
+        color: "0xe3b341",
+        sparkle: false,
+    },
+    Particle {
+        x: 0.42,
+        y: 0.12,
+        sway: 70.0,
+        bob: 20.0,
+        speed: 0.40,
+        phase: 3.1,
+        size: 22.0,
+        color: "0xf0f6fc",
+        sparkle: false,
+    },
+    Particle {
+        x: 0.62,
+        y: 0.22,
+        sway: 45.0,
+        bob: 35.0,
+        speed: 0.60,
+        phase: 4.4,
+        size: 14.0,
+        color: "0x56d4dd",
+        sparkle: false,
+    },
+    Particle {
+        x: 0.78,
+        y: 0.10,
+        sway: 60.0,
+        bob: 25.0,
+        speed: 0.80,
+        phase: 2.2,
+        size: 18.0,
+        color: "0xe3b341",
+        sparkle: false,
+    },
+    Particle {
+        x: 0.88,
+        y: 0.40,
+        sway: 35.0,
+        bob: 30.0,
+        speed: 0.50,
+        phase: 5.0,
+        size: 12.0,
+        color: "0xf0f6fc",
+        sparkle: false,
+    },
+    Particle {
+        x: 0.53,
+        y: 0.55,
+        sway: 80.0,
+        bob: 25.0,
+        speed: 0.30,
+        phase: 0.9,
+        size: 12.0,
+        color: "0x56d4dd",
+        sparkle: false,
+    },
+    Particle {
+        x: 0.33,
+        y: 0.70,
+        sway: 40.0,
+        bob: 20.0,
+        speed: 0.90,
+        phase: 3.8,
+        size: 10.0,
+        color: "0xe3b341",
+        sparkle: false,
+    },
+    Particle {
+        x: 0.70,
+        y: 0.32,
+        sway: 30.0,
+        bob: 20.0,
+        speed: 0.60,
+        phase: 1.2,
+        size: 32.0,
+        color: "0xf0f6fc",
+        sparkle: true,
+    },
+    Particle {
+        x: 0.18,
+        y: 0.52,
+        sway: 50.0,
+        bob: 25.0,
+        speed: 0.50,
+        phase: 2.7,
+        size: 28.0,
+        color: "0xe3b341",
+        sparkle: true,
+    },
+];
+
+/// Builds the radial sprite used by the particle overlays.
+fn particle_sprite(dir: &Path) -> Result<PathBuf> {
+    let path = dir.join("particle.png");
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(["-v", "error", "-y", "-f", "lavfi", "-i"])
+        .arg("color=c=black:s=128x128:d=1")
+        .args([
+            "-vf",
+            "format=rgba,geq=r=255:g=255:b=255:a='255*exp(-((X-64)^2+(Y-64)^2)/(2*22^2))'",
+        ])
+        .args(["-frames:v", "1"])
+        .arg(&path);
+    attach_output(&mut cmd);
+    let status = cmd.status().context("building the particle sprite")?;
+    if !status.success() {
+        bail!("ffmpeg failed while building the particle sprite");
+    }
+    Ok(path)
+}
+
+/// One overlay per particle. `overlay` with `eval=frame` is what makes them
+/// move; the drawbox expressions are evaluated only once.
+fn particle_overlay() -> (String, String) {
+    let count = PARTICLES.len();
+    let mut filters = Vec::new();
+    let labels: Vec<String> = (0..count).map(|index| format!("sp{index}")).collect();
+    let outputs: String = labels.iter().map(|label| format!("[{label}]")).collect();
+    filters.push(format!("[2:v]split={count}{outputs}"));
+    let mut base = "bg".to_string();
+    for (index, particle) in PARTICLES.iter().enumerate() {
+        let size = (particle.size * 4.0).max(40.0);
+        let half = size / 2.0;
+        let (red, green, blue) = match particle.color {
+            "0x56d4dd" => (0.34, 0.83, 0.87),
+            "0xe3b341" => (0.89, 0.70, 0.25),
+            _ => (0.94, 0.96, 0.99),
+        };
+        let alpha = if particle.sparkle { 0.75 } else { 0.55 };
+        filters.push(format!(
+            "[sp{index}]scale={size:.0}:{size:.0},format=rgba,\
+             colorchannelmixer=rr={red}:gg={green}:bb={blue}:aa={alpha}[o{index}]"
+        ));
+        let cx = format!(
+            "W*{:.3}+{:.1}*sin(t*{:.2}+{:.2})",
+            particle.x, particle.sway, particle.speed, particle.phase
+        );
+        let cy = format!(
+            "H*{:.3}+{:.1}*cos(t*{:.2}+{:.2})",
+            particle.y,
+            particle.bob,
+            particle.speed * 0.8,
+            particle.phase
+        );
+        filters.push(format!(
+            "[{base}][o{index}]overlay=x='{cx}-{half:.1}':y='{cy}-{half:.1}':eval=frame[b{index}]"
+        ));
+        base = format!("b{index}");
+    }
+    (filters.join(";"), base)
+}
+
 /// Builds the final video from the chosen still and the mastered track: a slow
-/// zoom, floating pixel particles, an audio waveform and edge fades.
+/// zoom, glowing particles, an audio waveform and edge fades.
 pub fn assemble_video(
     cfg: &crate::config::Config,
     image: &Path,
@@ -253,18 +439,17 @@ pub fn assemble_video(
     let band = (height / 5).max(120);
     let wave_height = (height / 6).max(90);
     let fade_out_start = (total - 3.0).max(0.0);
+    std::fs::create_dir_all(dir.join("work"))?;
+    let sprite = particle_sprite(&dir.join("work"))?;
+    let (particles, base) = particle_overlay();
     let graph = format!(
         "[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},\
          zoompan=z='min(zoom+0.00015,1.08)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={width}x{height}:fps=30,\
-         drawbox=x='iw*0.06+90*sin(t*0.6)':y='ih*0.2+60*cos(t*0.8)':w=14:h=14:color=0x56d4dd@0.35:t=fill,\
-         drawbox=x='iw*0.83+70*sin(t*0.5+2)':y='ih*0.16+80*cos(t*0.7+1)':w=10:h=10:color=0xe3b341@0.40:t=fill,\
-         drawbox=x='iw*0.47+120*sin(t*0.4+4)':y='ih*0.11+40*cos(t*0.6+3)':w=18:h=18:color=0xf0f6fc@0.25:t=fill,\
-         drawbox=x='iw*0.30+60*sin(t*0.3+1)':y='ih*0.55+50*cos(t*0.5+2)':w=8:h=8:color=0x56d4dd@0.30:t=fill,\
-         drawbox=x='iw*0.70+80*sin(t*0.7+3)':y='ih*0.65+40*cos(t*0.4+4)':w=12:h=12:color=0xe3b341@0.30:t=fill,\
          drawbox=y=ih-{band}:w=iw:h={band}:color=black@0.22:t=fill[bg];\
+         {particles};\
          [1:a]asplit=2[aout][awave];\
          [awave]showwaves=s={width}x{wave_height}:mode=cline:rate=30:colors=0x56d4dd,format=rgba,colorchannelmixer=aa=0.55[wave];\
-         [bg][wave]overlay=0:H-h-30:format=auto,\
+         [{base}][wave]overlay=0:H-h-30:format=auto,\
          fade=t=in:st=0:d=1.5,fade=t=out:st={fade_out_start:.3}:d=3,format=yuv420p[v]"
     );
     let out = dir.join("video.mp4");
@@ -273,6 +458,8 @@ pub fn assemble_video(
         .arg(image)
         .arg("-i")
         .arg(audio)
+        .args(["-loop", "1", "-framerate", "30", "-i"])
+        .arg(&sprite)
         .args(["-filter_complex", &graph, "-map", "[v]", "-map", "[aout]"])
         .args(["-t"])
         .arg(format!("{total:.3}"))

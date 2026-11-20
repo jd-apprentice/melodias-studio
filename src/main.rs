@@ -9,12 +9,13 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
+use std::time::Duration;
 
 use crossterm::style::Stylize;
 
 use pipeline::{Msg, Selection, State};
 
-const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias video <dir>      (assemble a finished run)";
+const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias image <dir>      (regenerate the thumbnail of a run)\n       melodias video <dir>      (assemble a finished run)";
 
 fn main() -> io::Result<()> {
     let cfg = config::Config::from_env();
@@ -25,6 +26,9 @@ fn main() -> io::Result<()> {
     {
         println!("{USAGE}");
         return Ok(());
+    }
+    if args.first().is_some_and(|arg| arg == "image") {
+        return run_image(cfg, &args);
     }
     if args.first().is_some_and(|arg| arg == "video") {
         return run_video(cfg, &args);
@@ -129,6 +133,85 @@ fn run_headless(cfg: config::Config, args: &[String]) -> io::Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+/// Regenerates the thumbnail of a finished run from its stored prompt, keeping
+/// the chosen seed, then rebuilds the video. It only uses sd-server.
+fn run_image(cfg: config::Config, args: &[String]) -> io::Result<()> {
+    let [_, target] = args else {
+        eprintln!("usage: melodias image <output-dir>");
+        std::process::exit(2);
+    };
+    let requested = PathBuf::from(target);
+    let dir = if requested.is_dir() {
+        requested
+    } else {
+        cfg.out_dir.join(target)
+    };
+    let meta_path = dir.join("meta.json");
+    let text = std::fs::read_to_string(&meta_path)?;
+    let mut meta: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|error| io::Error::other(format!("invalid {}: {error}", meta_path.display())))?;
+    let prompt = meta["image_prompt"]
+        .as_str()
+        .ok_or_else(|| io::Error::other("meta.json has no image_prompt"))
+        .map(clients::sanitize_eye_prompt)?;
+    let selected = meta["image"]["selected"].as_u64().unwrap_or(1) as usize;
+    let count = meta["image"]["candidates"]
+        .as_array()
+        .map(|candidates| candidates.len() + 1)
+        .unwrap_or(1);
+    let seed = meta["image"]["candidates"]
+        .as_array()
+        .and_then(|candidates| candidates.get(selected.saturating_sub(1)))
+        .and_then(|candidate| candidate["seed"].as_u64())
+        .unwrap_or(1) as u32;
+    let candidate = dir.join("candidates").join(format!("image-{count:02}.png"));
+
+    media::ssh_run(&cfg, &cfg.audio_stop_cmd)
+        .map_err(|error| io::Error::other(format!("{error:#}")))?;
+    media::ssh_run(&cfg, &cfg.sd_start_cmd)
+        .map_err(|error| io::Error::other(format!("{error:#}")))?;
+    let generated = (|| -> anyhow::Result<()> {
+        clients::wait_sd(&cfg, Duration::from_secs(180))?;
+        let bytes = clients::generate_image(&cfg, &prompt, seed)?;
+        if let Some(parent) = candidate.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&candidate, &bytes)?;
+        media::png_size(&candidate)?;
+        Ok(())
+    })();
+    let stopped = media::ssh_run(&cfg, &cfg.sd_stop_cmd);
+    generated.map_err(|error| io::Error::other(format!("{error:#}")))?;
+    if let Err(error) = stopped {
+        eprintln!("warning: sd-server: {error:#}");
+    }
+
+    let thumbnail = dir.join("thumbnail.png");
+    let backup = dir.join("thumbnail-old.png");
+    if thumbnail.is_file() {
+        std::fs::copy(&thumbnail, &backup)?;
+    }
+    std::fs::copy(&candidate, &thumbnail)?;
+
+    if let Some(candidates) = meta["image"]["candidates"].as_array_mut() {
+        candidates.push(serde_json::json!({
+            "file": candidate.display().to_string(),
+            "seed": seed,
+        }));
+    }
+    meta["image"]["selected"] = serde_json::json!(count);
+    meta["image"]["file"] = serde_json::json!(thumbnail.display().to_string());
+    meta["image_prompt"] = serde_json::json!(prompt);
+    std::fs::write(&meta_path, serde_json::to_vec_pretty(&meta)?)?;
+
+    println!("image: {}", thumbnail.display());
+    let audio = dir.join("audio.mp3");
+    let video = media::assemble_video(&cfg, &thumbnail, &audio, &dir)
+        .map_err(|error| io::Error::other(format!("{error:#}")))?;
+    println!("video: {}", video.display());
     Ok(())
 }
 
