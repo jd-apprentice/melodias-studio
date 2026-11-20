@@ -2,7 +2,7 @@
 
 # melodias-studio
 
-A Rust TUI that turns a YouTube song into a 1280x720 thumbnail and a three to four minute instrumental track, using local models.
+A Rust TUI that turns a YouTube song into an 8-bit thumbnail and a three to four minute instrumental chiptune, using local models.
 
 ## Quick Start
 

@@ -146,10 +146,7 @@ fn run(cfg: &Config, url: &str, vibe: &str, tx: &Sender<Msg>) -> Result<Outcome>
 
     // The vibe is the only audio prompt. The word "instrumental" plus the
     // negative prompt keep voices out of every delivery.
-    let audio_prompt = format!(
-        "{vibe}, instrumental, soft intro that builds gradually, full arrangement in the middle, \
-         gentle outro that resolves and fades out"
-    );
+    let audio_prompt = compose_audio_prompt(vibe, &cfg.audio_style);
     log(tx, format!("prompt audio: {audio_prompt}"));
 
     let audio_result = step(tx, 6, || {
@@ -266,5 +263,26 @@ pub fn slugify(text: &str) -> String {
         "take".to_string()
     } else {
         trimmed
+    }
+}
+
+/// The channel medium is a rule: the vibe adds mood, the style is always there.
+pub fn compose_audio_prompt(vibe: &str, style: &str) -> String {
+    format!(
+        "{vibe}, {style}, instrumental, soft intro that builds gradually, full arrangement in \
+         the middle, gentle outro that resolves and fades out"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_medium_is_always_in_the_audio_prompt() {
+        let prompt = compose_audio_prompt("epic orchestral", "8-bit chiptune");
+        assert!(prompt.starts_with("epic orchestral, 8-bit chiptune"));
+        assert!(prompt.contains("instrumental"));
+        assert!(prompt.contains("fades out"));
     }
 }

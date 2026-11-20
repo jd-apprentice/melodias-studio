@@ -22,6 +22,8 @@ cp config.example.toml ~/.config/melodias-studio/config.toml
 | `REMOTE_REF_DIR` | `/models/ref` | remote folder for references |
 | `OUT_DIR` | `output` | local output |
 | `GPU_LABEL` | `local models` | label in the header and the splash |
+| `AUDIO_STYLE` | `8-bit chiptune` | fixed medium added to every audio prompt |
+| `IMAGE_STYLE` | `8-bit pixel art` | style pinned in the image prompt system message |
 | `DURATION_SEC` | `210` | take length |
 | `STEPS` | `32` | diffusion steps |
 | `GUIDANCE` | `5` | CFG |
@@ -31,6 +33,8 @@ cp config.example.toml ~/.config/melodias-studio/config.toml
 | `FADE_IN_SEC` | `1.5` | master fade-in |
 | `FADE_OUT_SEC` | `3.0` | master fade-out |
 | `LOUDNESS_LUFS` | `-15` | master loudness target |
+
+The channel medium is a hard rule: the audio prompt always gets `AUDIO_STYLE`, even when the vibe does not mention it, and the image system message always pins `IMAGE_STYLE`. The vibe adds mood and references, not the medium.
 
 An empty environment variable is ignored, so to run locally use `ssh_host = ""` in `config.toml` instead of `SSH_HOST=`.
 

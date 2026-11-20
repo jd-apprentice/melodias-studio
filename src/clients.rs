@@ -85,10 +85,13 @@ fn wait(name: &str, timeout: Duration, probe: impl Fn() -> Result<()>) -> Result
 
 pub fn ask_image_prompt(cfg: &Config, vibe: &str) -> Result<String> {
     let url = format!("{}/v1/chat/completions", cfg.llm_url.trim_end_matches('/'));
-    let system = "You write prompts for a text-to-image model. Reply with ONE line of at \
-most 60 words, in English, no quotes, no explanation. Describe a 16:9 YouTube thumbnail \
-in 8-bit pixel art style: one anime character in a scene, detailed pixelated background, \
-nostalgic cozy mood. Never mention audio, BPM, tempo, music, songs, text or watermarks.";
+    let system = format!(
+        "You write prompts for a text-to-image model. Reply with ONE line of at most 60 \
+words, in English, no quotes, no explanation. Describe a 16:9 YouTube thumbnail in {} \
+style: one anime character in a scene, detailed background, nostalgic cozy mood. Never \
+mention audio, BPM, tempo, music, songs, text or watermarks.",
+        cfg.image_style
+    );
     let user =
         format!("Thumbnail concept, keep the scene but adapt the palette and props to it: {vibe}");
     let body = json!({

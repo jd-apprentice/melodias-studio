@@ -29,6 +29,8 @@
 # audio_stop_cmd = "/home/ubuntu/bin/serve-audio.sh stop"
 
 # --- Content ---------------------------------------------------------------
+# audio_style = "8-bit chiptune"
+# image_style = "8-bit pixel art"
 # gpu_label = "local models"
 # duration_sec = 210
 # steps = 32

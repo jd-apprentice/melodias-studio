@@ -23,6 +23,10 @@ pub struct Config {
     pub sd_stop_cmd: String,
     pub audio_start_cmd: String,
     pub audio_stop_cmd: String,
+    /// Fixed medium for the music prompt, independent of the vibe.
+    pub audio_style: String,
+    /// Fixed style for the thumbnail prompt, pinned in the system message.
+    pub image_style: String,
     /// Steers ACE-Step away from voices; the channel only publishes instrumentals.
     pub audio_negative_prompt: String,
     /// Label shown in the header and the splash, for example "Tesla P40".
@@ -88,6 +92,8 @@ impl Config {
                 file.audio_stop_cmd,
                 "/home/ubuntu/bin/serve-audio.sh stop",
             ),
+            audio_style: pick(env("AUDIO_STYLE"), file.audio_style, "8-bit chiptune"),
+            image_style: pick(env("IMAGE_STYLE"), file.image_style, "8-bit pixel art"),
             audio_negative_prompt: pick(
                 env("AUDIO_NEGATIVE_PROMPT"),
                 file.audio_negative_prompt,
@@ -157,6 +163,8 @@ struct FileConfig {
     sd_stop_cmd: Option<String>,
     audio_start_cmd: Option<String>,
     audio_stop_cmd: Option<String>,
+    audio_style: Option<String>,
+    image_style: Option<String>,
     audio_negative_prompt: Option<String>,
     gpu_label: Option<String>,
     duration_sec: Option<u32>,
@@ -203,12 +211,16 @@ mod tests {
             duration_sec = 240
             fade_in_sec = 2.0
             audio_negative_prompt = "vocals"
+            audio_style = "lofi"
+            image_style = "watercolor"
         "#;
         let file: FileConfig = toml::from_str(text).unwrap();
         assert_eq!(file.ssh_host.as_deref(), Some("user@10.0.0.5"));
         assert_eq!(file.duration_sec, Some(240));
         assert_eq!(file.fade_in_sec, Some(2.0));
         assert_eq!(file.audio_negative_prompt.as_deref(), Some("vocals"));
+        assert_eq!(file.audio_style.as_deref(), Some("lofi"));
+        assert_eq!(file.image_style.as_deref(), Some("watercolor"));
         assert_eq!(file.steps, None);
     }
 }
