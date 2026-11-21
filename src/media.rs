@@ -24,7 +24,7 @@ fn log_file() -> Option<std::fs::File> {
         .ok()
 }
 
-fn attach_output(cmd: &mut Command) {
+pub(crate) fn attach_output(cmd: &mut Command) {
     if let Some(file) = log_file()
         && let Ok(err) = file.try_clone()
     {
@@ -163,6 +163,38 @@ pub fn pick_reference(cfg: &crate::config::Config, src: &Path, dir: &Path) -> Re
     }
     if total < 10.0 {
         bail!("the source is {total:.1} s long, too short to use as a reference");
+    }
+    Ok(out)
+}
+
+/// Normalizes a user-supplied reference to the same PCM WAV `pick_reference`
+/// produces, so AUDIO_REFERENCE can be a ChipForge render, a Wario Synth
+/// export or any other 8-bit bounce.
+pub fn prepare_reference(input: &Path, dir: &Path, seconds: u32) -> Result<PathBuf> {
+    if !input.is_file() {
+        bail!(
+            "the configured reference is not a file: {}",
+            input.display()
+        );
+    }
+    let total = duration_secs(input)?;
+    if total < 5.0 {
+        bail!("the configured reference is {total:.1} s long, too short to use as a reference");
+    }
+    let out = dir.join("reference.wav");
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(["-v", "error", "-y", "-t"])
+        .arg(seconds.max(5).to_string())
+        .arg("-i")
+        .arg(input)
+        .args(["-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le"])
+        .arg(&out);
+    attach_output(&mut cmd);
+    let status = cmd
+        .status()
+        .with_context(|| format!("normalizing {}", input.display()))?;
+    if !status.success() {
+        bail!("ffmpeg failed while normalizing {}", input.display());
     }
     Ok(out)
 }
@@ -537,4 +569,42 @@ pub fn duration_secs(path: &Path) -> Result<f64> {
     text.trim()
         .parse::<f64>()
         .with_context(|| format!("invalid duration: {text:?}"))
+}
+
+/// Renders the audio waveform used by the Remotion composition. It is the same
+/// ffmpeg `showwaves` line as the fast renderer; the black background
+/// disappears with `mix-blend-mode: screen` in the composition.
+pub fn waveform_overlay(audio: &Path, output: &Path, width: u32, height: u32) -> Result<()> {
+    let total = duration_secs(audio)?;
+    let width = width.max(320) & !1;
+    let height = height.max(240) & !1;
+    let wave = (height / 6).max(90);
+    let top = height - wave - 30;
+    let graph = format!(
+        "showwaves=s={width}x{wave}:mode=cline:rate=30:colors=0x56d4dd,\
+         pad={width}:{height}:0:{top}:color=black,format=yuv420p"
+    );
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(["-v", "error", "-y", "-i"])
+        .arg(audio)
+        .args([
+            "-filter_complex",
+            &graph,
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "21",
+            "-t",
+        ])
+        .arg(format!("{total:.3}"))
+        .arg(output);
+    attach_output(&mut cmd);
+    let status = cmd.status().context("rendering the waveform overlay")?;
+    if !status.success() {
+        bail!("ffmpeg failed while rendering the waveform overlay");
+    }
+    Ok(())
 }

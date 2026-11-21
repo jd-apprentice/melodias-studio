@@ -28,7 +28,7 @@ Passing the reference URL and the vibe as arguments runs the same pipeline witho
 MELODIAS_LOG=output/run.log melodias 'https://www.youtube.com/watch?v=...' 'epic 8-bit orchestral finale'
 ```
 
-The headless mode auto-selects candidate 1 for both pools, so use the TUI when you want to choose. The log receives the same lines as plain text, so it can be read later without escape codes. Quote the URL: a YouTube link copied from a playlist carries `&list=` and `&index=`, which the shell would otherwise split. The exit code is non-zero when a stage fails.
+The headless mode auto-selects the judge suggestion, or the best-scored pair when the judge is off, so use the TUI when you want to choose. The log receives the same lines as plain text, so it can be read later without escape codes. Quote the URL: a YouTube link copied from a playlist carries `&list=` and `&index=`, which the shell would otherwise split. The exit code is non-zero when a stage fails.
 
 The image stage reports its own duration and the size of the PNG it got back, and warns when the server returned something other than the requested size.
 
@@ -89,9 +89,32 @@ The image side is palette, contrast at 168 px, text, glow and saturation. The au
 
 The text check uses `tesseract`. Without it, `IMG_TEXT` is skipped and the image side is renormalized over the remaining metrics.
 
+### Retry loop
+
+The run scores the pool before the review and, when a side misses, regenerates only that side with a patched prompt. The patch is fixed data: `IMG_PALETTE` appends the limited-palette text, `IMG_GLOW` adds the neon negative and the natural-eye positive, and the audio codes append the chiptune, build or continuity text.
+
+- The image side runs up to two rounds while sd-server is up; the audio side runs at most one when it lost eight points or more, independently of the image result.
+- The same code never triggers twice, and the pool stops growing at nine candidates per side.
+- `SCORE_ROUNDS` caps the rounds per side; set it to `0` to keep the phase 1 behavior and skip the loop.
+- The review opens on the judge suggestion or, without one, on the best-scored pair. The log shows each patch, the scores after each round and why the loop stopped.
+- A run that ends below the target is still saved and marked `accepted_by_limit`; `melodias history` and the dashboard show the outcome, and the run log says which side hit its budget.
+
+### Reference library
+
+To condition the thumbnails on a curated set, point `IMAGE_REFERENCES` at a folder (local or mounted SMB) and group the images in concept subfolders:
+
+```bash
+export IMAGE_REFERENCES=/mnt/owncloud/melodias-refs
+melodias 'https://www.youtube.com/watch?v=...' 'epic 8bit battle theme'
+```
+
+The subfolder whose name matches the vibe (longest match) is used; `IMAGE_REFERENCE_CONCEPT=battle` forces one, and `IMAGE_REFERENCE_COUNT=3` changes how many go per generation. The references are sent as `extra_images` to sd-server, rotate between retry rounds, and are recorded per candidate in `meta.json`. The app never mounts the share or copies the images into the repository.
+
+`melodias refs fetch --source pixabay|opengameart` fills the folder and `melodias refs import` imports your own or CC0 packs; both write `sources.jsonl` with the license of every image. See [configuration.md](configuration.md#building-a-library).
+
 ### History
 
-Every finished run records itself in a local SQLite database after the video stage, so the next command does not need the run directory. `melodias history` shows the last 20 runs; `findings` ranks the codes by the points they cost; `trend` averages by day, week or month. `--json` and `--csv` feed a script, and the whole view only reads:
+Every finished run records itself in a local SQLite database after the video stage, so the next command does not need the run directory. `melodias history` shows the last 20 runs with their outcome (`accepted`, `accepted_by_limit` or `below_target`); `findings` ranks the codes by the points they cost; `trend` averages by day, week or month. `--json` and `--csv` feed a script, and the whole view only reads:
 
 ```bash
 melodias history
@@ -139,6 +162,33 @@ make image DIR=output/<slug>
 ```
 
 It keeps the old file as `thumbnail-old.png`, appends the new image to `candidates/`, updates `meta.json` and rebuilds `video.mp4`. The current prompt is sanitized so the eyes stay natural and the configured image negative prompt is applied.
+
+### Chip covers (experimental)
+
+`melodias chip <url|file>` renders an NES-style cover without touching the main pipeline. It downloads the audio, separates stems with Demucs, transcribes melody and bass with Basic Pitch, writes a FamiStudio project, renders it, and mixes a stereo master with echo, arpeggios, vibrato and portamento.
+
+```bash
+melodias chip 'https://www.youtube.com/watch?v=...' --title "Battle theme"
+melodias chip song.wav --out /tmp/chip --keep-work
+```
+
+Output: `output/chip/<slug>/` with `audio.wav`, `audio.mp3`, `preview.mp3`, `project.txt` and `meta.json`.
+
+It needs three things outside the repo, all user-local:
+
+```bash
+# Demucs + Basic Pitch in an isolated virtualenv
+uv venv ~/.local/share/melodias-studio/venvs/audio8bit --python 3.11
+uv pip install --python ~/.local/share/melodias-studio/venvs/audio8bit/bin/python \
+  demucs basic-pitch 'numpy<2' 'tensorflow==2.15.0' 'setuptools<81'
+
+# FamiStudio 4.5.4 and a local .NET 8 runtime
+mkdir -p ~/.local/share/melodias-studio/tools
+# unzip FamiStudio454-LinuxAMD64.zip into tools/famistudio
+# install .NET 8 with dotnet-install.sh into tools/dotnet
+```
+
+Override the paths with `CHIP_VENV`, `FAMISTUDIO_BIN` and `DOTNET_ROOT`. The project text opens in FamiStudio for manual edits, and the CLI can export NSF or ROM from it.
 
 ## Make shortcuts
 

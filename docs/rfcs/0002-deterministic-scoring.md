@@ -1,6 +1,6 @@
 # 0002 · Deterministic scoring and feedback loop
 
-Status: accepted. Phases 1 and 2 are implemented, plus a first dashboard; the retry loop is not.
+Status: accepted. Phases 1 to 3 are implemented, plus a first dashboard. The five editorial axes and their weights are still open.
 
 Date: 2026-11-20
 
@@ -115,6 +115,8 @@ Candidates that fail a gate are rejected before scoring, not penalized:
 
 The judge keeps the rubric from 0001 but stops returning a single opaque score. It returns 0..100 for style, composition, eyes, retro character and pair coherence, plus `must_fix` codes. `editorial` is the weighted sum of those axes, and the judge receives the deterministic findings so it does not repeat them and does not contradict the gates.
 
+The axes and weights are not implemented yet. Today the judge still returns one editorial score, plus up to five `must_fix` codes from the vocabulary eyes, composition, style, retro, coherence or other. Those codes are kept in `verdict.json` and `meta.json`; giving each axis a weight is the next editorial change.
+
 When the judge is off, `editorial` is absent and the total equals the technical score.
 
 ## Findings
@@ -156,6 +158,14 @@ Rules:
 - Budget: two image rounds and one audio round. Audio drafts are the expensive side.
 - A run that ends below the target is still valid: it is marked `accepted_by_limit` and the report says why.
 
+Implementation notes:
+
+- The loop runs where the GPU lifecycle allows it: the image rounds inside the image stage, while sd-server is up, and the audio round inside the drafts stage, while ACE-Step is up. The per-side budgets are still two and one, capped by `SCORE_ROUNDS`.
+- The RFC asks for a `high` finding, but the audio metrics top out at 8 points and `high` starts at 10. A strict filter would leave every audio patch unreachable, so the loop accepts `medium` or worse (a loss of 4 points or more) and picks the worst actionable one.
+- The pool keeps every candidate and stops growing at 9 per side, which is what the TUI can select with `1-9`.
+- The applied patches go to the `patches` table with the positive and negative prompt as a JSON object, and `meta.json` keeps the final prompts plus the stop reason for each side.
+- Every image candidate records the prompt and negative prompt that produced it, so `melodias image` can reproduce the selected one instead of using the last round's prompt.
+
 The patch table is fixed data, not a model. The agent chooses the finding code; the code chooses the text:
 
 | Code | Patch |
@@ -178,7 +188,7 @@ $XDG_CONFIG_HOME/melodias-studio/history.db
 
 `MELODIAS_DB` overrides it, so a run can write into a repo checkout during development. `.gitignore` gets `*.db`, `*.db-wal` and `*.db-shm`. WAL mode, one writer at a time, no server.
 
-Writing is part of the run. When the pipeline finishes, it records one `runs` row, one row per candidate and one `findings` row per lost point, including the judge verdict when there is one. The score is computed right after the video and also written to `work/score.json`. A failed write is logged and never aborts the run, the same way the judge fails open. `melodias history` only reads; it never writes.
+Writing is part of the run. When the pipeline finishes, it records one `runs` row, one row per candidate and one `findings` row per lost deterministic point; the judge verdict and its `must_fix` codes stay in `work/judge/verdict.json` and `meta.json`. The score is computed right after the video and also written to `work/score.json`. A failed write is logged and never aborts the run, the same way the judge fails open. `melodias history` only reads; it never writes.
 
 ```sql
 create table runs (
@@ -191,6 +201,8 @@ create table runs (
   editorial real,
   total real,
   accepted integer not null,
+  outcome text,
+  outcome_reason text,
   rounds integer not null,
   cost_usd real,
   seconds real,
@@ -231,11 +243,13 @@ create table patches (
 );
 ```
 
+Schema version 2 adds `outcome` and `outcome_reason`. The writer migrates an old file on the next run; readers tolerate the missing columns. `accepted_by_limit` marks a run that used its retry budget without reaching the target, and the backfill writes `below_target` for legacy rows.
+
 The `rubric` column matters: a threshold change starts a new version, and trends only compare rows with the same one. Without it, "the score went up" can just mean "the rubric got softer".
 
 ### Backfill
 
-`scripts/backfill-history.sh`, also available as `make backfill`, scores the runs already in `output/` with the same rubric, so the history starts with data. It skips a slug that is already present and rewrites it with `--replace`. It writes the same tables as the pipeline, so `melodias history` reads both. The first database was built this way, before any pipeline change. All three runs scored below the target, which is the expected starting point:
+`melodias backfill`, also available as `make backfill`, scores the runs already in `output/` with the same rubric, so the history starts with data. It skips a slug that is already present and rewrites it with `--replace`. It writes the same tables as the pipeline, so `melodias history` reads both. The first database was built this way, before any pipeline change. All three runs scored below the target, which is the expected starting point:
 
 | Run | Technical | Editorial | Total |
 | --- | --- | --- | --- |
@@ -304,8 +318,8 @@ The editorial score is the weak part and the RFC does not hide it:
 ## Phases
 
 1. **Metrics and `melodias score`.** Done: `src/score.rs`, pure functions over pixel buffers plus parsers for `ffmpeg` output, `melodias score <dir>` and `work/score.json`, findings in the report. Every candidate and the final pair are scored; drafts skip the master-only metrics. No database, no loop.
-2. **History in every run.** Done: `rusqlite` with the bundled feature, one write at the end of a run, `melodias history` reads. `MELODIAS_DB` and the default path. Findings of the final pair are stored at run level (`candidate_id` null); the pool candidates keep their full score in `candidates.score_json`. `scripts/backfill-history.sh` covers the runs made before it existed.
-3. **Retry loop.** Patch table, budget, `accepted_by_limit`, `must_fix` codes in the judge prompt.
+2. **History in every run.** Done: `rusqlite` with the bundled feature, one write at the end of a run, `melodias history` reads. `MELODIAS_DB` and the default path. Findings of the final pair are stored at run level (`candidate_id` null); the pool candidates keep their full score in `candidates.score_json`. `melodias backfill` covers the runs made before it existed.
+3. **Retry loop.** Done: `src/retry.rs` holds the patch table, the finding picker and the prompt application; the pipeline runs the image rounds in the image stage and the audio round in the drafts stage, records every patch in `patches`, and stores `accepted_by_limit` with a reason. The judge prompt receives the deterministic findings and asks for `must_fix` codes. The editorial axes and weights remain open.
 4. **Dashboard.** Done (first version): `melodias dashboard` serves a local read-only page over the database with the score per run and the cost per finding. It is a Rust server plus static files in `dashboard/`, polls once a minute and needs no build step. A static export over the CSV is still open.
 
 ## Tests
@@ -313,7 +327,9 @@ The editorial score is the weak part and the RFC does not hide it:
 - Pure functions take pixel buffers and parsed numbers, so most tests need no `ffmpeg`: palette buckets, contrast curve, glow share, score composition, delta and severity.
 - Parsers get captured `ffmpeg` output as string fixtures: `ebur128`, `astats`, `silencedetect`, `aspectralstats`.
 - One ignored test writes a real run from `output/` into a temporary database when a run exists.
-- The judge JSON contract gets a test that rejects a score without findings.
+- The retry table has a test for every code in this RFC, and the picker skips low losses, unpatchable codes and keys already applied. The prompt application is checked on the positive and the negative side.
+- The history migration is tested against a v1 database: a reader tolerates the missing columns and the writer adds them and maps the old accepted flag.
+- The must_fix parser normalizes codes, accepts the old string shape and caps the list at five.
 
 ## Risks
 
@@ -331,5 +347,5 @@ The editorial score is the weak part and the RFC does not hide it:
 3. **Acceptance:** 80 total, 85 technical, 70 editorial. A perfect editorial score cannot carry a technical score below 72.
 4. **OCR:** `tesseract` is optional. Without it, `IMG_TEXT` is skipped and the image side is renormalized over the remaining 40 points.
 5. **Database:** the config directory, `MELODIAS_DB` overrides it. `.gitignore` covers `*.db`, `*.db-wal` and `*.db-shm` for checkouts that point into the repo.
-6. **Audio round:** at most one, and only when the audio side lost 8 points or more and the image side already passed. The loop still stops at `SCORE_ROUNDS`.
+6. **Audio round:** at most one, when the audio side lost 8 points or more of its 50, independent of the image side. The loop still stops at `SCORE_ROUNDS`. In practice this is a side score below 84/100; drafts are normalized over the metrics they can measure, so the condition uses the normalized score. The first implementation also required the image side to pass, but the live run showed that a weak image starved the audio round, so the gate is gone.
 7. **Candidates:** score all of them. Drafts skip `AUD_LOUDNESS`, `AUD_PEAK` and `AUD_DURATION`, which describe the mastered track.

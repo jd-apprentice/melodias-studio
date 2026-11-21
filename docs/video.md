@@ -4,25 +4,29 @@
 
 Both take the chosen `thumbnail.png` and the mastered `audio.mp3` and write `video.mp4`.
 
-### ffmpeg (fast)
+### ffmpeg (fast, explicit)
 
 `media::assemble_video` builds a 1080p30 video in about two minutes. Slow zoom, soft sprite particles, waveform band and fades. It is deterministic and needs no Node.
 
 ```bash
 melodias video output/<slug>
+# or
+VIDEO_RENDERER=ffmpeg make generate URL='...' VIBE='...'
 ```
 
-The pipeline uses this renderer at the end of every run.
+It is used only when requested. The pipeline does not fall back to it.
 
-### Remotion (produced)
+### Remotion (default)
 
 The `video/` project renders a richer composition in about twelve minutes:
 
 - Slow zoom on the still.
-- Bokeh and spark overlays from `assets/videos/`, screen blended.
+- Bokeh and spark overlays from `assets/videos/`, screen blended and selectable with `VIDEO_PARTICLES` (`both` by default, `bokeh` or `sparks`).
 - A bird layer clipped to the sky.
-- An audio-reactive waveform from `@remotion/media-utils`.
+- The same `showwaves` waveform line as the fast renderer, rendered by ffmpeg as a screen-blended overlay.
 - A subtle channel label and fades.
+
+The pipeline uses this renderer at the end of every run. If `video/node_modules` or `pnpm` is missing, the run fails in the preflight, before the GPU work, with the command to fix it. There is no silent fallback.
 
 ```bash
 cd video
@@ -31,13 +35,13 @@ cd ..
 melodias render output/<slug>
 ```
 
-`melodias render` copies the still and track into `video/public/current/`, writes `video/props.json` with the duration, and runs `pnpm exec remotion render` with four workers. The previous `video.mp4` is kept as `video-ffmpeg.mp4`.
+`melodias render` copies the still and track into `video/public/current/`, writes `video/props.json` with the duration, channel and particles, renders the waveform overlay from the audio, and runs `pnpm exec remotion render` with four workers. The previous `video.mp4` is kept as `video-ffmpeg.mp4`.
 
 The 1080p overlay clips live in `video/public/overlays/` and are committed. The 4K masters in `assets/videos/` are local only and ignored by git.
 
 ## Setup notes
 
-- Node 18+ and pnpm are required only for the Remotion renderer.
+- Node 18+ and pnpm are required by default; only the explicit ffmpeg path avoids them.
 - `pnpm-workspace.yaml` allows esbuild's build script, which pnpm blocks by default.
 - The first render downloads a Headless Shell for Remotion.
 - Remotion writes a ~120 MB file for a three minute track, compared to ~42 MB for the ffmpeg version.
@@ -57,6 +61,5 @@ The 1080p overlay clips live in `video/public/overlays/` and are committed. The 
 
 ## Open items
 
-- The pipeline still calls the ffmpeg renderer; wiring Remotion as the default stage is pending a decision on the ~50 minute total budget.
 - The assembly agent that picks a preset from the vibe is still a design item.
 - Title and channel overlays are fixed; they can move to `config.toml` when the video gets more settings.

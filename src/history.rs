@@ -16,7 +16,7 @@ use serde_json::Value;
 
 use crate::score::{Finding, RunScore};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 const SCHEMA: &str = "
 pragma journal_mode=wal;
@@ -30,6 +30,8 @@ create table if not exists runs (
   editorial real,
   total real,
   accepted integer not null,
+  outcome text,
+  outcome_reason text,
   rounds integer not null,
   cost_usd real,
   seconds real,
@@ -79,6 +81,9 @@ pub struct RunRecord<'a> {
     pub started_at: &'a str,
     pub seconds: f64,
     pub rounds: u32,
+    pub patches: &'a [crate::retry::Applied],
+    pub outcome: &'a str,
+    pub outcome_reason: Option<&'a str>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -123,6 +128,8 @@ pub struct RunRow {
     pub editorial: Option<f64>,
     pub total: Option<f64>,
     pub accepted: bool,
+    pub outcome: Option<String>,
+    pub outcome_reason: Option<String>,
     pub rounds: i64,
 }
 
@@ -164,13 +171,47 @@ pub fn open(path: &Path) -> Result<Connection> {
     }
     conn.execute_batch(SCHEMA)
         .with_context(|| format!("creating the schema in {}", path.display()))?;
-    if version < SCHEMA_VERSION {
-        conn.execute_batch(&format!("pragma user_version = {SCHEMA_VERSION}"))?;
-    }
+    migrate(&conn, version)?;
     if created {
         restrict(path);
     }
     Ok(conn)
+}
+
+/// Adds the columns that predate the current version. `create table if not
+/// exists` cannot add a column to an existing table, so old databases need an
+/// explicit `alter`. The backfilled outcome mirrors the accepted flag.
+fn migrate(conn: &Connection, version: i64) -> Result<()> {
+    if version < 2 {
+        if !has_column(conn, "runs", "outcome")? {
+            conn.execute_batch("alter table runs add column outcome text")?;
+        }
+        if !has_column(conn, "runs", "outcome_reason")? {
+            conn.execute_batch("alter table runs add column outcome_reason text")?;
+        }
+        conn.execute_batch(
+            "update runs set outcome = case when accepted = 1 then 'accepted' else 'below_target' end
+             where outcome is null",
+        )?;
+    }
+    if version < SCHEMA_VERSION {
+        conn.execute_batch(&format!("pragma user_version = {SCHEMA_VERSION}"))?;
+    }
+    Ok(())
+}
+
+/// Readers use it to tolerate a database written before a column existed. The
+/// table name is a literal from this module, never input.
+pub(crate) fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    let mut statement = conn.prepare(&format!("pragma table_info({table})"))?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 #[cfg(unix)]
@@ -199,8 +240,9 @@ pub fn insert(record: &RunRecord<'_>, score: &RunScore) -> Result<i64> {
     let meta = read_json(&record.dir.join("meta.json"));
     tx.execute(
         "insert into runs (started_at, slug, vibe, rubric, technical, editorial, total,
-                           accepted, rounds, cost_usd, seconds, config_json)
-         values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                           accepted, outcome, outcome_reason, rounds, cost_usd, seconds,
+                           config_json)
+         values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             record.started_at,
             record.slug,
@@ -210,6 +252,8 @@ pub fn insert(record: &RunRecord<'_>, score: &RunScore) -> Result<i64> {
             score.editorial,
             score.total,
             score.accepted,
+            record.outcome,
+            record.outcome_reason,
             record.rounds,
             cost_usd(record.dir),
             record.seconds,
@@ -245,6 +289,20 @@ pub fn insert(record: &RunRecord<'_>, score: &RunScore) -> Result<i64> {
         .chain(score.gates.iter());
     for finding in findings {
         insert_finding(&tx, run_id, finding)?;
+    }
+
+    for patch in record.patches {
+        tx.execute(
+            "insert into patches (run_id, code, prompt_before, prompt_after, applied_at)
+             values (?1, ?2, ?3, ?4, ?5)",
+            params![
+                run_id,
+                patch.code,
+                patch.prompt_before,
+                patch.prompt_after,
+                patch.applied_at,
+            ],
+        )?;
     }
 
     tx.commit()?;
@@ -290,10 +348,22 @@ pub fn recent(db: &Path, limit: usize) -> Result<Vec<RunRow>> {
     let Some(conn) = reader(db)? else {
         return Ok(Vec::new());
     };
-    let mut statement = conn.prepare(
-        "select id, started_at, slug, technical, editorial, total, accepted, rounds
-         from runs order by id desc limit ?1",
-    )?;
+    let outcome = if has_column(&conn, "runs", "outcome")? {
+        "outcome"
+    } else {
+        "null"
+    };
+    let reason = if has_column(&conn, "runs", "outcome_reason")? {
+        "outcome_reason"
+    } else {
+        "null"
+    };
+    let sql = format!(
+        "select id, started_at, slug, technical, editorial, total, accepted, {outcome}, {reason},
+                rounds
+         from runs order by id desc limit ?1"
+    );
+    let mut statement = conn.prepare(&sql)?;
     let rows = statement.query_map([limit as i64], |row| {
         Ok(RunRow {
             id: row.get(0)?,
@@ -303,7 +373,9 @@ pub fn recent(db: &Path, limit: usize) -> Result<Vec<RunRow>> {
             editorial: row.get(4)?,
             total: row.get(5)?,
             accepted: row.get(6)?,
-            rounds: row.get(7)?,
+            outcome: row.get(7)?,
+            outcome_reason: row.get(8)?,
+            rounds: row.get(9)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -366,12 +438,13 @@ pub fn render_runs(rows: &[RunRow], format: Format) -> Result<String> {
         return Ok(serde_json::to_string_pretty(rows)?);
     }
     if format == Format::Csv {
-        let mut out =
-            String::from("id,started_at,slug,technical,editorial,total,accepted,rounds\n");
+        let mut out = String::from(
+            "id,started_at,slug,technical,editorial,total,accepted,outcome,outcome_reason,rounds\n",
+        );
         for row in rows {
             let _ = writeln!(
                 out,
-                "{},{},{},{},{},{},{},{}",
+                "{},{},{},{},{},{},{},{},{},{}",
                 row.id,
                 csv_field(&row.started_at),
                 csv_field(&row.slug),
@@ -379,6 +452,8 @@ pub fn render_runs(rows: &[RunRow], format: Format) -> Result<String> {
                 field(row.editorial),
                 field(row.total),
                 row.accepted,
+                csv_field(row.outcome.as_deref().unwrap_or("")),
+                csv_field(row.outcome_reason.as_deref().unwrap_or("")),
                 row.rounds
             );
         }
@@ -388,23 +463,34 @@ pub fn render_runs(rows: &[RunRow], format: Format) -> Result<String> {
         return Ok("no runs yet\n".to_string());
     }
     let mut out = format!(
-        "{:>4}  {:<20}  {:<40}  {:>6}  {:>4}  {:>6}  {}\n",
-        "id", "started", "slug", "tech", "edit", "total", "accepted"
+        "{:>4}  {:<25}  {:<40}  {:>6}  {:>4}  {:>6}  {:<14}\n",
+        "id", "started", "slug", "tech", "edit", "total", "outcome"
     );
     for row in rows {
         let _ = writeln!(
             out,
-            "{:>4}  {:<20}  {:<40}  {:>6}  {:>4}  {:>6}  {}",
+            "{:>4}  {:<25}  {:<40}  {:>6}  {:>4}  {:>6}  {:<14}",
             row.id,
             row.started_at,
             row.slug,
             number(row.technical),
             number(row.editorial),
             number(row.total),
-            if row.accepted { "yes" } else { "no" }
+            outcome_label(row)
         );
     }
     Ok(out)
+}
+
+fn outcome_label(row: &RunRow) -> &str {
+    match row.outcome.as_deref() {
+        Some("accepted") => "accepted",
+        Some("accepted_by_limit") => "by limit",
+        Some("below_target") => "below target",
+        Some(other) => other,
+        None if row.accepted => "accepted",
+        None => "below target",
+    }
 }
 
 pub fn render_findings(rows: &[FindingRow], format: Format) -> Result<String> {
@@ -552,194 +638,5 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::score::CandidateScore;
-    use std::path::PathBuf;
-
-    fn temp_db(name: &str) -> PathBuf {
-        let path =
-            std::env::temp_dir().join(format!("melodias-history-{}-{name}.db", std::process::id()));
-        for suffix in ["", "-wal", "-shm"] {
-            let _ = fs::remove_file(format!("{}{suffix}", path.display()));
-        }
-        path
-    }
-
-    fn finding(code: &'static str, delta: f64) -> Finding {
-        Finding {
-            code,
-            source: "deterministic",
-            severity: if delta <= -10.0 { "high" } else { "medium" },
-            metric: "unique_colors",
-            value: 216_853.0,
-            threshold: 16_384.0,
-            delta,
-            message: "216853 colors: full-color render, not pixel art".to_string(),
-        }
-    }
-
-    fn candidate(
-        index: usize,
-        seed: u32,
-        selected: bool,
-        findings: Vec<Finding>,
-    ) -> CandidateScore {
-        CandidateScore {
-            index,
-            file: format!("/tmp/image-{index:02}.png"),
-            seed: Some(seed),
-            selected,
-            mode: "image",
-            score: 58.25,
-            points: 29.13,
-            evaluated: 50.0,
-            findings,
-            skipped: Vec::new(),
-        }
-    }
-
-    fn score_run(accepted: bool) -> RunScore {
-        let lost = finding("IMG_PALETTE", -20.0);
-        let build = finding("AUD_BUILD", -3.5);
-        RunScore {
-            rubric: crate::score::RUBRIC,
-            dir: "/tmp/run".to_string(),
-            technical: 72.35,
-            editorial: Some(67.0),
-            total: 70.21,
-            accepted,
-            gates: Vec::new(),
-            images: vec![candidate(1, 11, true, vec![lost.clone()])],
-            audios: Vec::new(),
-            final_image: candidate(1, 11, true, vec![lost]),
-            final_audio: candidate(0, 0, true, vec![build.clone()]),
-        }
-    }
-
-    #[test]
-    fn formats_utc_timestamps() {
-        let epoch = UNIX_EPOCH;
-        assert_eq!(iso8601(epoch), "1970-01-01T00:00:00Z");
-        assert_eq!(
-            iso8601(epoch + Duration::from_secs(1_795_182_044)),
-            "2026-11-20T13:40:44Z"
-        );
-        assert_eq!(
-            iso8601(epoch + Duration::from_secs(1_709_251_199)),
-            "2024-02-29T23:59:59Z"
-        );
-        assert_eq!(
-            iso8601(epoch + Duration::from_secs(951_868_800)),
-            "2000-03-01T00:00:00Z"
-        );
-    }
-
-    #[test]
-    fn round_trips_a_run() {
-        let db = temp_db("round-trip");
-        let dir = std::env::temp_dir().join(format!("melodias-history-{}", std::process::id()));
-        let record = RunRecord {
-            db: &db,
-            dir: &dir,
-            slug: "epic-8-bit",
-            vibe: "epic 8-bit",
-            started_at: "2026-11-20T13:40:44Z",
-            seconds: 2123.0,
-            rounds: 0,
-        };
-        let id = insert(&record, &score_run(false)).unwrap();
-        assert_eq!(id, 1);
-        assert_eq!(insert(&record, &score_run(true)).unwrap(), 2);
-
-        let runs = recent(&db, 20).unwrap();
-        assert_eq!(runs.len(), 2);
-        assert_eq!(runs[0].slug, "epic-8-bit");
-        assert_eq!(runs[0].technical, Some(72.35));
-        assert_eq!(runs[0].editorial, Some(67.0));
-        assert!(runs[0].accepted);
-        assert!(!runs[1].accepted);
-
-        let findings = findings(&db).unwrap();
-        assert_eq!(findings.len(), 2);
-        assert_eq!(findings[0].code, "IMG_PALETTE");
-        assert_eq!(findings[0].hits, 2);
-        assert_eq!(findings[0].points, Some(-40.0));
-        assert_eq!(findings[0].accepted, 1);
-
-        let trend = trend(&db, By::Day).unwrap();
-        assert_eq!(trend.len(), 1);
-        assert_eq!(trend[0].bucket, "2026-11-20");
-        assert_eq!(trend[0].runs, 2);
-        assert_eq!(trend[0].accepted, 1);
-
-        let _ = fs::remove_file(&db);
-        let _ = fs::remove_file(format!("{}-wal", db.display()));
-        let _ = fs::remove_file(format!("{}-shm", db.display()));
-    }
-
-    #[test]
-    fn a_missing_database_reads_as_empty() {
-        let db = temp_db("missing");
-        assert!(recent(&db, 20).unwrap().is_empty());
-        assert!(findings(&db).unwrap().is_empty());
-        assert!(trend(&db, By::Week).unwrap().is_empty());
-        assert!(!db.exists(), "reading must not create the file");
-    }
-
-    #[test]
-    fn renders_tables_and_csv() {
-        let rows = vec![RunRow {
-            id: 7,
-            started_at: "2026-11-20T13:40:44Z".to_string(),
-            slug: "epic, 8-bit".to_string(),
-            technical: Some(72.35),
-            editorial: None,
-            total: Some(72.35),
-            accepted: false,
-            rounds: 0,
-        }];
-        let table = render_runs(&rows, Format::Table).unwrap();
-        assert!(table.contains("epic, 8-bit"));
-        assert!(table.contains("72.3"));
-        let csv = render_runs(&rows, Format::Csv).unwrap();
-        assert!(csv.starts_with("id,started_at,slug"));
-        assert!(csv.contains("\"epic, 8-bit\""));
-        assert!(csv.contains(",72.35,-,72.35,"));
-        let json = render_runs(&rows, Format::Json).unwrap();
-        assert!(json.contains("\"accepted\": false"));
-        assert_eq!(render_runs(&[], Format::Json).unwrap().trim(), "[]");
-    }
-
-    #[test]
-    #[ignore = "needs a finished run in output/ and ffmpeg"]
-    fn writes_a_real_run_end_to_end() {
-        let dir = Path::new("output/world-s-most-epic-emotional-violin");
-        if !dir.join("meta.json").is_file() {
-            eprintln!("skipping: {} is not here", dir.display());
-            return;
-        }
-        let score = crate::score::score_run(dir).unwrap();
-        let db = temp_db("real");
-        let started = now_iso8601();
-        let record = RunRecord {
-            db: &db,
-            dir,
-            slug: "real-run",
-            vibe: "real run",
-            started_at: &started,
-            seconds: 1.0,
-            rounds: 0,
-        };
-        let id = insert(&record, &score).unwrap();
-        let runs = recent(&db, 5).unwrap();
-        assert_eq!(runs[0].id, id);
-        assert_eq!(runs[0].slug, "real-run");
-        assert_eq!(runs[0].technical, Some(score.technical));
-        assert!(!findings(&db).unwrap().is_empty());
-
-        let _ = fs::remove_file(&db);
-        let _ = fs::remove_file(format!("{}-wal", db.display()));
-        let _ = fs::remove_file(format!("{}-shm", db.display()));
-    }
-}
+#[path = "tests/history.rs"]
+mod tests;

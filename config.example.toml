@@ -30,6 +30,9 @@
 
 # --- Content ---------------------------------------------------------------
 # audio_style = "8-bit chiptune"
+# Optional reference for ACE-Step: a ChipForge render, a Wario Synth export
+# or a MIDI-driven chip bounce. Replaces a window of the source video.
+# audio_reference = "/path/to/loop.wav"
 # image_style = "8-bit pixel art"
 # image_negative_prompt = "glowing eyes, neon eyes, empty eyes, oversaturated eyes, text, watermark, signature"
 # gpu_label = "local models"
@@ -41,9 +44,20 @@
 # height = 720
 # video_width = 1920
 # video_height = 1080
+# video_renderer = "remotion"   # remotion | ffmpeg; ffmpeg is explicit only
+# video_particles = "both"      # both | bokeh | sparks
+# video_project = "video"
 # image_steps = 20
 # image_seed = 42
+# Optional reference library. It is a local folder or a mounted share; the app
+# never mounts it or copies it into the repository. Subfolders are concepts.
+# image_references = "/path/to/reference-thumbnails"
+# image_reference_count = 3
+# image_reference_concept = "battle"
 # candidates = 3
+# Deterministic retry rounds. 2 by default; the image budget caps at 2 and the
+# audio budget at 1. Set 0 to disable the loop.
+# score_rounds = 2
 # audio_draft_sec = 60
 # audio_draft_steps = 16
 # audio_draft_sampler = "euler"

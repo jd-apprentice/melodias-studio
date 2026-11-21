@@ -17,22 +17,66 @@ const SYSTEM: &str = "You are the reviewer for an 8-bit YouTube channel. The cha
 original instrumental chiptune and pixel-art thumbnails. Judge only inside that brief. Return \
 JSON only, with no prose and no code fences.";
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MustFix {
+    pub code: String,
+    pub target: String,
+    pub reason: String,
+}
+
 pub struct Verdict {
     pub image: usize,
     pub audio: usize,
     pub score: u8,
     pub reason: String,
+    pub must_fix: Vec<MustFix>,
 }
 
 impl Verdict {
     pub fn summary(&self) -> Value {
+        let must_fix: Vec<Value> = self
+            .must_fix
+            .iter()
+            .map(|item| {
+                json!({
+                    "code": item.code,
+                    "target": item.target,
+                    "reason": item.reason,
+                })
+            })
+            .collect();
         json!({
             "image": self.image + 1,
             "audio": self.audio + 1,
             "score": self.score,
             "reason": self.reason,
+            "must_fix": must_fix,
         })
     }
+
+    /// Appends " · must fix: ..." for logs, or nothing when the judge is happy.
+    pub fn must_fix_suffix(&self) -> String {
+        if self.must_fix.is_empty() {
+            return String::new();
+        }
+        let codes = self
+            .must_fix
+            .iter()
+            .map(|item| item.code.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(" · must fix: {codes}")
+    }
+}
+
+/// Everything the judge needs. `findings` is the compact deterministic report
+/// so the model does not repeat what the rubric already measured.
+pub struct Request<'a> {
+    pub vibe: &'a str,
+    pub images: &'a [Candidate],
+    pub audios: &'a [Candidate],
+    pub work: &'a Path,
+    pub findings: Option<&'a str>,
 }
 
 /// The two backends are not interchangeable in shape: OpenCode Go exposes
@@ -92,35 +136,39 @@ pub fn describe(cfg: &Config) -> String {
 
 /// Sends compressed evidence to the perception model, then asks the text judge
 /// for the final pair. The caller decides what to do when this fails.
-pub fn decide(
-    cfg: &Config,
-    vibe: &str,
-    images: &[Candidate],
-    audios: &[Candidate],
-    work: &Path,
-) -> Result<Verdict> {
+pub fn decide(cfg: &Config, request: Request<'_>) -> Result<Verdict> {
+    let Request {
+        vibe,
+        images,
+        audios,
+        work,
+        findings,
+    } = request;
     let dir = work.join("judge");
     std::fs::create_dir_all(&dir).context("creating the judge directory")?;
     let evidence = evidence(cfg, images, audios, &dir)?;
 
     let (omni, judge, usage) = match provider(cfg) {
         Provider::OpenCode => {
-            let (omni, usage) = generate(cfg, &evidence, vibe)?;
+            let (omni, usage) = generate(cfg, &evidence, vibe, findings)?;
             (omni, Value::Null, usage)
         }
         Provider::OpenRouter => {
             let omni = chat(
                 cfg,
                 &cfg.judge_omni_model,
-                openrouter_content(&evidence, vibe),
+                openrouter_content(&evidence, vibe, findings),
             )?;
+            let measured = findings_section(findings);
             let judge_prompt = format!(
                 "Brief: {vibe}\n\n\
                  A perception model saw the images and heard the clips. Its report:\n{omni}\n\n\
                  You are the final judge. Choose the image and the audio that make the best pair \
-                 for the channel, balancing quality and mood coherence. Return exactly this JSON:\n\
+                 for the channel, balancing quality and mood coherence.{measured}\n\n\
+                 Return exactly this JSON:\n\
                  {{\"verdict\":\"approve\",\"image\":1,\"audio\":1,\"score\":0,\
-                 \"must_fix\":[],\"nice_to_have\":[],\"reason\":\"\"}}"
+                 \"must_fix\":[{{\"code\":\"eyes\",\"target\":\"image 1\",\"reason\":\"\"}}],\
+                 \"nice_to_have\":[],\"reason\":\"\"}}"
             );
             let judge = chat(cfg, &cfg.judge_reasoner_model, vec![text(judge_prompt)])
                 .unwrap_or(Value::Null);
@@ -144,6 +192,11 @@ pub fn decide(
         .or_else(|| omni["reason"].as_str())
         .unwrap_or("no reason")
         .to_string();
+    let must_fix = if judge["must_fix"].is_array() {
+        parse_must_fix(&judge["must_fix"])
+    } else {
+        parse_must_fix(&omni["must_fix"])
+    };
 
     std::fs::write(
         dir.join("verdict.json"),
@@ -162,7 +215,65 @@ pub fn decide(
         audio,
         score,
         reason,
+        must_fix,
     })
+}
+
+/// The judge returns up to five fixes the deterministic rubric cannot see.
+/// Objects are the current shape; a bare string is accepted from older
+/// prompts. Codes are normalized and truncated so one odd answer cannot bloat
+/// the report.
+fn parse_must_fix(value: &Value) -> Vec<MustFix> {
+    let Some(items) = value.as_array() else {
+        return Vec::new();
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut fixes = Vec::new();
+    for item in items {
+        let (code, target, reason) = if let Some(text) = item.as_str() {
+            (normalize_code(text), String::new(), String::new())
+        } else {
+            (
+                normalize_code(item["code"].as_str().unwrap_or("")),
+                clean(item["target"].as_str().unwrap_or(""), 40),
+                clean(item["reason"].as_str().unwrap_or(""), 200),
+            )
+        };
+        if code.is_empty() || !seen.insert(code.clone()) {
+            continue;
+        }
+        fixes.push(MustFix {
+            code,
+            target,
+            reason,
+        });
+        if fixes.len() == 5 {
+            break;
+        }
+    }
+    fixes
+}
+
+fn normalize_code(text: &str) -> String {
+    text.trim()
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric() || *character == '_')
+        .take(24)
+        .collect()
+}
+
+fn clean(text: &str, limit: usize) -> String {
+    text.trim().chars().take(limit).collect()
+}
+
+fn findings_section(findings: Option<&str>) -> String {
+    match findings.map(str::trim) {
+        Some(text) if !text.is_empty() => format!(
+            "\n\nDeterministic findings already measured locally. Do not repeat them in must_fix:\n{text}"
+        ),
+        _ => String::new(),
+    }
 }
 
 enum Part {
@@ -192,7 +303,8 @@ fn evidence(
     Ok(parts)
 }
 
-fn brief(vibe: &str, images: usize, audios: usize) -> String {
+fn brief(vibe: &str, images: usize, audios: usize, findings: Option<&str>) -> String {
+    let measured = findings_section(findings);
     format!(
         "Brief: {vibe}\n\n\
          The channel publishes original 8-bit instrumental music and pixel-art thumbnails. \
@@ -202,22 +314,27 @@ fn brief(vibe: &str, images: usize, audios: usize) -> String {
          composition, palette, readability at thumbnail size, natural eyes, no text. \
          Score every audio clip from 0 to 100 for instrumental quality, energy, intro and \
          outro, no vocals. \
-         Score the mood coherence of every image/audio pair from 0 to 100. \
+         Score the mood coherence of every image/audio pair from 0 to 100.\
+         {measured}\n\n\
+         must_fix is only for what the numbers cannot see. Use code one of eyes, composition, \
+         style, retro, coherence or other, and target image N, audio N or pair. \
          Return exactly this JSON shape:\n\
          {{\"images\":[{{\"index\":1,\"score\":0,\"reason\":\"\"}}],\
          \"audios\":[{{\"index\":1,\"score\":0,\"reason\":\"\"}}],\
          \"pairs\":[{{\"image\":1,\"audio\":1,\"coherence\":0,\"reason\":\"\"}}],\
-         \"best\":{{\"image\":1,\"audio\":1,\"score\":0}},\"reason\":\"\"}}"
+         \"best\":{{\"image\":1,\"audio\":1,\"score\":0}},\
+         \"must_fix\":[{{\"code\":\"eyes\",\"target\":\"image 1\",\"reason\":\"\"}}],\
+         \"reason\":\"\"}}"
     )
 }
 
-fn openrouter_content(parts: &[Part], vibe: &str) -> Vec<Value> {
+fn openrouter_content(parts: &[Part], vibe: &str, findings: Option<&str>) -> Vec<Value> {
     let images = parts
         .iter()
         .filter(|part| matches!(part, Part::Image { .. }))
         .count();
     let audios = parts.len() - images;
-    let mut content = vec![text(brief(vibe, images, audios))];
+    let mut content = vec![text(brief(vibe, images, audios, findings))];
     for part in parts {
         match part {
             Part::Image { label, path } => {
@@ -239,13 +356,13 @@ fn openrouter_content(parts: &[Part], vibe: &str) -> Vec<Value> {
     content
 }
 
-fn gemini_parts(parts: &[Part], vibe: &str) -> Value {
+fn gemini_parts(parts: &[Part], vibe: &str, findings: Option<&str>) -> Value {
     let images = parts
         .iter()
         .filter(|part| matches!(part, Part::Image { .. }))
         .count();
     let audios = parts.len() - images;
-    let mut out = vec![json!({ "text": brief(vibe, images, audios) })];
+    let mut out = vec![json!({ "text": brief(vibe, images, audios, findings) })];
     for part in parts {
         match part {
             Part::Image { label, path } => {
@@ -346,10 +463,15 @@ fn client(cfg: &Config) -> Result<reqwest::blocking::Client> {
 
 /// One-shot request to Gemini's native endpoint through OpenCode Go. The model
 /// sees the images and hears the clips, so it answers the whole verdict itself.
-fn generate(cfg: &Config, parts: &[Part], vibe: &str) -> Result<(Value, Value)> {
+fn generate(
+    cfg: &Config,
+    parts: &[Part],
+    vibe: &str,
+    findings: Option<&str>,
+) -> Result<(Value, Value)> {
     let body = json!({
         "systemInstruction": { "parts": [{ "text": SYSTEM }] },
-        "contents": [{ "role": "user", "parts": gemini_parts(parts, vibe) }],
+        "contents": [{ "role": "user", "parts": gemini_parts(parts, vibe, findings) }],
         "generationConfig": { "responseMimeType": "application/json" }
     });
     let url = format!(
@@ -495,36 +617,5 @@ fn extract_json(text: &str) -> Result<Value> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn extracts_json_from_fences_and_prose() {
-        let text = "Here is the verdict:\n```json\n{\"image\":2,\"audio\":1,\"score\":88}\n```";
-        let value = extract_json(text).unwrap();
-        assert_eq!(value["image"], 2);
-        assert_eq!(value["score"], 88);
-    }
-
-    #[test]
-    fn ignores_braces_inside_strings() {
-        let text = "{\"reason\":\"a } inside\",\"image\":1}";
-        let value = extract_json(text).unwrap();
-        assert_eq!(value["image"], 1);
-    }
-
-    #[test]
-    fn accepts_only_valid_indices() {
-        assert_eq!(pick_index(&json!(2), 3), Some(1));
-        assert_eq!(pick_index(&json!(0), 3), None);
-        assert_eq!(pick_index(&json!(4), 3), None);
-    }
-
-    #[test]
-    fn auto_provider_prefers_the_configured_key() {
-        assert_eq!(resolve("auto", false), Provider::OpenRouter);
-        assert_eq!(resolve("auto", true), Provider::OpenCode);
-        assert_eq!(resolve("openrouter", true), Provider::OpenRouter);
-        assert_eq!(resolve("opencode", false), Provider::OpenCode);
-    }
-}
+#[path = "tests/judge.rs"]
+mod tests;

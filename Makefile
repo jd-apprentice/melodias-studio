@@ -8,7 +8,7 @@ PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 BIN := target/release/melodias
 
-.PHONY: help run generate image judge score history dashboard render video backfill build check fmt test install uninstall deploy status log clean
+.PHONY: help run generate image judge score history dashboard render video backfill refs build check fmt test install uninstall deploy status log clean
 
 help:
 	@printf '%s\n' \
@@ -23,6 +23,9 @@ help:
   '  make history [ARGS=findings]         read the local history database' \
   '  make dashboard                       serve the read-only dashboard on 127.0.0.1' \
   '  make backfill [ARGS=--replace]       score the runs in output/ into the history DB' \
+  '  make refs ARGS="fetch --source opengameart --concept castle"  fill the reference library' \
+  '  make refs ARGS="generate --concept volcano --count 5"  generate references with sd-server' \
+  '  make refs ARGS="import --concept castle --license CC0-1.0 pack.zip"  import packs' \
 	  '  make render DIR=output/<slug>        produced video with Remotion' \
 	  '  make video DIR=output/<slug>         fast video with ffmpeg' \
 	  '  make uninstall                       removes the installed binary' \
@@ -59,7 +62,11 @@ score:
 	$(CARGO) run --release -- score "$(DIR)"
 
 backfill:
-	scripts/backfill-history.sh $(ARGS)
+	$(CARGO) run --release -- backfill $(ARGS)
+
+refs:
+	@test -n "$(ARGS)" || { echo 'missing ARGS, for example: make refs ARGS="fetch --source opengameart --concept castle --count 20"'; exit 2; }
+	$(CARGO) run --release -- refs $(ARGS)
 
 history:
 	$(CARGO) run --release -- history $(ARGS)

@@ -1,5 +1,7 @@
 mod app;
+mod backfill;
 mod banner;
+mod chip;
 mod clients;
 mod config;
 mod dashboard;
@@ -7,7 +9,11 @@ mod history;
 mod judge;
 mod media;
 mod pipeline;
+mod references;
+mod refs;
+mod retry;
 mod score;
+mod video;
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, IsTerminal, Write};
@@ -17,9 +23,11 @@ use std::time::Duration;
 
 use crossterm::style::Stylize;
 
-use pipeline::{Msg, Selection, State};
+use pipeline::{Msg, State};
 
-const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias image <dir>      (regenerate the thumbnail of a run)\n       melodias judge <dir>      (review a finished run with the judge)\n       melodias score <dir>      (score a finished run, no GPU)\n       melodias history [view]   (runs, findings or trend, from the local database)\n       melodias dashboard        (local read-only charts over the database)\n       melodias render <dir>     (produced video with Remotion)\n       melodias video <dir>      (fast video with ffmpeg)";
+const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias image <dir>      (regenerate the thumbnail of a run)\n       melodias judge <dir>      (review a finished run with the judge)\n       melodias score <dir>      (score a finished run, no GPU)\n       melodias history [view]   (runs, findings or trend, from the local database)
+       melodias backfill [dir]   (score finished runs into the history database)\n       melodias dashboard        (local read-only charts over the database)\n       melodias render <dir>     (produced video with Remotion)\n       melodias video <dir>      (fast video with ffmpeg)\n       melodias refs fetch       (fill the reference library from a source)\n       melodias refs import      (import files or packs into the library)\n       melodias refs generate    (generate reference images with sd-server)
+       melodias chip <url|file>  (experimental NES cover of a track)";
 
 fn main() -> io::Result<()> {
     let cfg = config::Config::from_env();
@@ -43,6 +51,9 @@ fn main() -> io::Result<()> {
     if args.first().is_some_and(|arg| arg == "history") {
         return run_history(cfg, &args);
     }
+    if args.first().is_some_and(|arg| arg == "backfill") {
+        return run_backfill(cfg, &args);
+    }
     if args.first().is_some_and(|arg| arg == "dashboard") {
         return run_dashboard(cfg, &args);
     }
@@ -51,6 +62,12 @@ fn main() -> io::Result<()> {
     }
     if args.first().is_some_and(|arg| arg == "video") {
         return run_video(cfg, &args);
+    }
+    if args.first().is_some_and(|arg| arg == "refs") {
+        return run_refs(cfg, &args);
+    }
+    if args.first().is_some_and(|arg| arg == "chip") {
+        return run_chip(cfg, &args);
     }
     if !args.is_empty() {
         return run_headless(cfg, &args);
@@ -125,11 +142,9 @@ fn run_headless(cfg: config::Config, args: &[String]) -> io::Result<()> {
                     ));
                 }
                 if let Some(note) = &request.note {
-                    out.log_line(&format!("judge: {note}"));
+                    out.log_line(&format!("review: {note}"));
                 }
-                let selection = request
-                    .suggestion
-                    .unwrap_or(Selection { image: 0, audio: 0 });
+                let selection = request.suggestion.unwrap_or(request.default);
                 let _ = decisions.send(selection);
                 out.log_line(&format!(
                     "selected image {} and audio draft {} (headless)",
@@ -404,13 +419,24 @@ fn run_judge(cfg: config::Config, args: &[String]) -> io::Result<()> {
         eprintln!("meta.json has no image or audio candidates");
         std::process::exit(2);
     }
-    let verdict = judge::decide(&cfg, vibe, &images, &audios, &dir.join("work"))
-        .map_err(|error| io::Error::other(format!("{error:#}")))?;
+    let work = dir.join("work");
+    let verdict = judge::decide(
+        &cfg,
+        judge::Request {
+            vibe,
+            images: &images,
+            audios: &audios,
+            work: &work,
+            findings: None,
+        },
+    )
+    .map_err(|error| io::Error::other(format!("{error:#}")))?;
     println!(
-        "judge: image {} · audio {} · score {} · {}",
+        "judge: image {} · audio {} · score {}{} · {}",
         verdict.image + 1,
         verdict.audio + 1,
         verdict.score,
+        verdict.must_fix_suffix(),
         verdict.reason
     );
     println!("raw: {}", dir.join("work/judge/verdict.json").display());
@@ -439,44 +465,25 @@ fn run_render(cfg: config::Config, args: &[String]) -> io::Result<()> {
             std::process::exit(2);
         }
     }
-    let project = std::env::current_dir()?.join("video");
-    if !project.join("node_modules").is_dir() {
-        eprintln!("the Remotion project is not installed; run: cd video && pnpm install");
-        std::process::exit(2);
-    }
-    let current = project.join("public").join("current");
-    std::fs::create_dir_all(&current)?;
-    std::fs::copy(&image, current.join("thumbnail.png"))?;
-    std::fs::copy(&audio, current.join("audio.mp3"))?;
-    let duration =
-        media::duration_secs(&audio).map_err(|error| io::Error::other(format!("{error:#}")))?;
-    let props = project.join("props.json");
-    std::fs::write(
-        &props,
-        serde_json::to_vec(&serde_json::json!({
-            "durationSec": duration,
-            "channel": "melodias8bit",
-        }))?,
-    )?;
+    std::fs::create_dir_all(dir.join("work"))?;
+    let temp = dir.join("work").join("video-remotion.mp4");
+    video::render_remotion(&cfg, &image, &audio, &temp, &mut |line| println!("{line}"))
+        .map_err(|error| io::Error::other(format!("{error:#}")))?;
     let output = dir.join("video.mp4");
     if output.is_file() {
         let _ = std::fs::copy(&output, dir.join("video-ffmpeg.mp4"));
     }
-    let status = std::process::Command::new("pnpm")
-        .current_dir(&project)
-        .args([
-            "exec",
-            "remotion",
-            "render",
-            "src/index.ts",
-            "MelodiasVideo",
-        ])
-        .arg(&output)
-        .arg(format!("--props={}", props.display()))
-        .arg("--concurrency=4")
-        .status()?;
-    if !status.success() {
-        return Err(io::Error::other("remotion render failed"));
+    std::fs::rename(&temp, &output)?;
+    let particles = video::particles_value(&cfg.video_particles)
+        .map_err(|error| io::Error::other(format!("{error:#}")))?;
+    let meta_path = dir.join("meta.json");
+    if let Ok(text) = std::fs::read_to_string(&meta_path)
+        && let Ok(mut meta) = serde_json::from_str::<serde_json::Value>(&text)
+    {
+        meta["video"]["renderer"] = serde_json::json!("remotion");
+        meta["video"]["particles"] = serde_json::json!(particles);
+        meta["video"]["file"] = serde_json::json!(output.display().to_string());
+        std::fs::write(&meta_path, serde_json::to_vec_pretty(&meta)?)?;
     }
     println!("video: {}", output.display());
     Ok(())
@@ -499,20 +506,37 @@ fn run_image(cfg: config::Config, args: &[String]) -> io::Result<()> {
     let text = std::fs::read_to_string(&meta_path)?;
     let mut meta: serde_json::Value = serde_json::from_str(&text)
         .map_err(|error| io::Error::other(format!("invalid {}: {error}", meta_path.display())))?;
-    let prompt = meta["image_prompt"]
-        .as_str()
-        .ok_or_else(|| io::Error::other("meta.json has no image_prompt"))
-        .map(clients::sanitize_eye_prompt)?;
     let selected = meta["image"]["selected"].as_u64().unwrap_or(1) as usize;
+    let entry = meta["image"]["candidates"]
+        .as_array()
+        .and_then(|candidates| candidates.get(selected.saturating_sub(1)));
+    let prompt = entry
+        .and_then(|candidate| candidate["prompt"].as_str())
+        .or_else(|| meta["image_prompt"].as_str())
+        .ok_or_else(|| io::Error::other("meta.json has no image prompt"))?
+        .to_string();
+    let prompt = clients::sanitize_eye_prompt(&prompt);
+    let negative = entry
+        .and_then(|candidate| candidate["negative_prompt"].as_str())
+        .or_else(|| meta["image"]["negative_prompt"].as_str())
+        .unwrap_or(&cfg.image_negative_prompt)
+        .to_string();
     let count = meta["image"]["candidates"]
         .as_array()
         .map(|candidates| candidates.len() + 1)
         .unwrap_or(1);
-    let seed = meta["image"]["candidates"]
-        .as_array()
-        .and_then(|candidates| candidates.get(selected.saturating_sub(1)))
+    let seed = entry
         .and_then(|candidate| candidate["seed"].as_u64())
         .unwrap_or(1) as u32;
+    let references: Vec<PathBuf> = entry
+        .and_then(|candidate| candidate["references"].as_array())
+        .map(|list| {
+            list.iter()
+                .filter_map(|value| value.as_str())
+                .map(PathBuf::from)
+                .collect()
+        })
+        .unwrap_or_default();
     let candidate = dir.join("candidates").join(format!("image-{count:02}.png"));
 
     media::ssh_run(&cfg, &cfg.audio_stop_cmd)
@@ -521,7 +545,7 @@ fn run_image(cfg: config::Config, args: &[String]) -> io::Result<()> {
         .map_err(|error| io::Error::other(format!("{error:#}")))?;
     let generated = (|| -> anyhow::Result<()> {
         clients::wait_sd(&cfg, Duration::from_secs(180))?;
-        let bytes = clients::generate_image(&cfg, &prompt, seed)?;
+        let bytes = clients::generate_image(&cfg, &prompt, &negative, seed, &references)?;
         if let Some(parent) = candidate.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -546,6 +570,12 @@ fn run_image(cfg: config::Config, args: &[String]) -> io::Result<()> {
         candidates.push(serde_json::json!({
             "file": candidate.display().to_string(),
             "seed": seed,
+            "prompt": prompt,
+            "negative_prompt": negative,
+            "references": references
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>(),
         }));
     }
     meta["image"]["selected"] = serde_json::json!(count);
@@ -555,9 +585,15 @@ fn run_image(cfg: config::Config, args: &[String]) -> io::Result<()> {
 
     println!("image: {}", thumbnail.display());
     let audio = dir.join("audio.mp3");
-    let video = media::assemble_video(&cfg, &thumbnail, &audio, &dir)
-        .map_err(|error| io::Error::other(format!("{error:#}")))?;
-    println!("video: {}", video.display());
+    let rendered = video::render(&cfg, &thumbnail, &audio, &dir, &mut |line| {
+        println!("{line}")
+    })
+    .map_err(|error| io::Error::other(format!("{error:#}")))?;
+    meta["video"]["file"] = serde_json::json!(rendered.file.display().to_string());
+    meta["video"]["renderer"] = serde_json::json!(rendered.renderer);
+    meta["video"]["particles"] = serde_json::json!(rendered.particles);
+    std::fs::write(&meta_path, serde_json::to_vec_pretty(&meta)?)?;
+    println!("video: {}", rendered.file.display());
     Ok(())
 }
 
@@ -656,23 +692,18 @@ impl Reporter {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn writes_a_clean_log() {
-        let path = std::env::temp_dir().join(format!("melodias-studio-{}.log", std::process::id()));
-        let _ = std::fs::remove_file(&path);
-        let mut out = Reporter::new(Some(path.clone())).unwrap();
-        out.stage(0, State::Running);
-        out.stage(0, State::Ok);
-        out.log_line("image prompt: pixel art castle");
-
-        let text = std::fs::read_to_string(&path).unwrap();
-        assert!(text.contains("▶ 1/11 Image prompt"));
-        assert!(text.contains("✔ 1/11 Image prompt"));
-        assert!(text.contains("   · image prompt: pixel art castle"));
-        let _ = std::fs::remove_file(path);
-    }
+fn run_refs(cfg: config::Config, args: &[String]) -> io::Result<()> {
+    refs::cli::run(&cfg, &args[1..]).map_err(|error| io::Error::other(format!("{error:#}")))
 }
+
+fn run_chip(cfg: config::Config, args: &[String]) -> io::Result<()> {
+    chip::run_chip(&cfg, &args[1..]).map_err(|error| io::Error::other(format!("{error:#}")))
+}
+
+fn run_backfill(cfg: config::Config, args: &[String]) -> io::Result<()> {
+    backfill::run(&cfg, &args[1..]).map_err(|error| io::Error::other(format!("{error:#}")))
+}
+
+#[cfg(test)]
+#[path = "tests/main.rs"]
+mod tests;

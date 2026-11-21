@@ -82,13 +82,12 @@ function renderLegend() {
 
 function renderCards(data) {
   const totals = data.totals;
+  const acceptedHint = totals.by_limit
+    ? `${percent(totals.accepted, totals.runs)} accepted · ${totals.by_limit} by limit`
+    : `${percent(totals.accepted, totals.runs)} of the history`;
   const cards = [
     ["Runs", String(totals.runs), data.rubrics.join(" · ") || "no rubric yet"],
-    [
-      "Accepted",
-      `${totals.accepted}/${totals.runs}`,
-      percent(totals.accepted, totals.runs) + " of the history",
-    ],
+    ["Accepted", `${totals.accepted}/${totals.runs}`, acceptedHint],
     ["Mean total", fmt(totals.total), "target 80"],
     ["Mean technical", fmt(totals.technical), "target 85"],
     ["Mean editorial", fmt(totals.editorial), "target 70"],
@@ -308,14 +307,21 @@ function renderRunsTable(data) {
     row.append(scoreCell(run.total, 80));
     row.append(node("td", "num", money(run.cost_usd)));
     row.append(node("td", "num", duration(run.seconds)));
+    const outcome = run.outcome || (run.accepted ? "accepted" : "below_target");
+    const label =
+      outcome === "accepted"
+        ? "accepted"
+        : outcome === "accepted_by_limit"
+          ? "by limit"
+          : "below";
     const status = node("td");
-    status.append(
-      node(
-        "span",
-        `badge ${run.accepted ? "ok" : "low"}`,
-        run.accepted ? "accepted" : "below",
-      ),
+    const badge = node(
+      "span",
+      `badge ${outcome === "accepted" ? "ok" : outcome === "accepted_by_limit" ? "limit" : "low"}`,
+      label,
     );
+    if (run.outcome_reason) badge.title = run.outcome_reason;
+    status.append(badge);
     row.append(status);
     body.append(row);
   }

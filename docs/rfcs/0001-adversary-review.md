@@ -1,6 +1,6 @@
 # Adversary review and video assembly
 
-Status: in progress. Phases 1, 2 and the cloud judge are implemented, and so is the assembly with ffmpeg and Remotion. The local hard gates and the retry loop are not. The judge preselects the pair and the TUI keeps the manual override.
+Status: in progress. Phases 1, 2 and the cloud judge are implemented, and so is the assembly with ffmpeg and Remotion. The pipeline renders with Remotion by default; ffmpeg is the explicit fast path. The local hard gates and the retry loop are not. The judge preselects the pair and the TUI keeps the manual override.
 
 ## Why
 
@@ -168,10 +168,10 @@ The judge is implemented in `src/judge.rs`. It runs before the review, writes `w
 
 Two renderers, same inputs (chosen still and mastered track):
 
-- **ffmpeg**, `media::assemble_video`: fast (~2 min), deterministic, used by the pipeline today. Slow zoom, moving sprite particles, waveform band and fades.
-- **Remotion**, the `video/` project: produced path (~12 min at 1080p30). Uses the particle and bird clips in `assets/videos/` as screen overlays, an audio-reactive waveform from `@remotion/media-utils`, a slow zoom, the channel label and fades. Run `melodias render <dir>`. The ffmpeg version stays available as `melodias video <dir>`.
+- **ffmpeg**, `media::assemble_video`: fast (~2 min), deterministic, used only when requested with `VIDEO_RENDERER=ffmpeg` or `melodias video <dir>`. Slow zoom, moving sprite particles, waveform band and fades.
+- **Remotion**, the `video/` project: the pipeline default (~12 min at 1080p30). Uses the particle and bird clips in `assets/videos/` as screen overlays, the same `showwaves` line as the fast renderer (rendered by ffmpeg as a screen overlay), a slow zoom, the channel label and fades. `VIDEO_PARTICLES=both|bokeh|sparks` selects the particle layers. Run `melodias render <dir>` to force it on a finished run.
 
-Both write `video.mp4`. The Remotion command backs up the previous ffmpeg file as `video-ffmpeg.mp4`.
+Both write `video.mp4`. Remotion is the pipeline default; `VIDEO_RENDERER=ffmpeg` or `melodias video` keeps the fast cut, and a previous video is kept as `video-ffmpeg.mp4` when re-rendering.
 
 The assembly agent that picks a preset from the vibe is still pending.
 
@@ -226,7 +226,7 @@ Measured wall time, warm model:
 | Total, ffmpeg | ~20 min | ~29 min | ~36 min |
 | Total, Remotion | ~30 min | ~46 min | ~50 min |
 
-N=3 fits the ffmpeg budget. Remotion adds about 12 minutes; if the produced video is the default, the real budget is closer to 50 minutes. The judge calls are free.
+The default is Remotion, so the real budget is closer to 50 minutes; `VIDEO_RENDERER=ffmpeg` keeps the ~36 minute budget. The judge calls are free.
 
 One quality question remains:
 
@@ -270,7 +270,7 @@ The same keys belong in `config.toml` once the feature exists. Image seeds and s
 3. Deterministic hard gates and local metrics.
 4. Omni perception + Ultra judge, with the strict JSON contract and fail-open. Done.
 5. Review loop with rounds and thresholds; the TUI can still override the pick.
-6. Video assembly: done with ffmpeg and Remotion; the preset agent is pending.
+6. Video assembly: done. Remotion is the default and ffmpeg is the explicit fast path; the preset agent is pending.
 7. Bar-aligned splicing, only if the seams measure clean.
 
 ## Risks and open questions

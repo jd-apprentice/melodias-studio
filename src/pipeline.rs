@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
@@ -5,7 +6,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 
-use crate::{clients, config::Config, history, judge, media, score};
+use crate::{clients, config::Config, history, judge, media, references, retry, score, video};
 
 pub const STAGES: [&str; 11] = [
     "Image prompt",
@@ -60,6 +61,8 @@ pub struct ReviewRequest {
     pub pool: Pool,
     /// Indices suggested by the cloud judge, if it ran and answered.
     pub suggestion: Option<Selection>,
+    /// Best-scored pair when the judge did not answer.
+    pub default: Selection,
     pub note: Option<String>,
 }
 
@@ -138,14 +141,49 @@ fn run(
         format!("audio seed {seed} · image seed {image_seed} · {count} candidates"),
     );
     media::preflight()?;
+    video::preflight(cfg)?;
+
+    let image_references =
+        match references::images(&cfg.image_references, vibe, &cfg.image_reference_concept) {
+            Ok(files) if !files.is_empty() => {
+                log(
+                    tx,
+                    format!(
+                        "references: {} images from {}",
+                        files.len(),
+                        cfg.image_references.display()
+                    ),
+                );
+                files
+            }
+            Ok(files) => {
+                if !cfg.image_references.as_os_str().is_empty() && files.is_empty() {
+                    log(
+                        tx,
+                        format!(
+                            "references: no images in {} (check the concept folder)",
+                            cfg.image_references.display()
+                        ),
+                    );
+                }
+                files
+            }
+            Err(error) => {
+                log(tx, format!("warning: references disabled: {error:#}"));
+                Vec::new()
+            }
+        };
 
     // The LLM writes the thumbnail prompt while it still owns the GPU.
-    let image_prompt = step(tx, 0, || {
-        media::ssh_run(cfg, &cfg.llm_start_cmd)?;
-        clients::wait_llm(cfg, Duration::from_secs(180))?;
-        clients::ask_image_prompt(cfg, vibe)
-    })?;
-    log(tx, format!("image prompt: {image_prompt}"));
+    let mut image_prompt = retry::Prompt::new(
+        step(tx, 0, || {
+            media::ssh_run(cfg, &cfg.llm_start_cmd)?;
+            clients::wait_llm(cfg, Duration::from_secs(180))?;
+            clients::ask_image_prompt(cfg, vibe)
+        })?,
+        cfg.image_negative_prompt.clone(),
+    );
+    log(tx, format!("image prompt: {}", image_prompt.positive));
 
     // Free the LLM, then bring up the image server.
     step(tx, 1, || {
@@ -155,59 +193,50 @@ fn run(
     })?;
 
     let image_started = std::time::Instant::now();
-    let images = step(tx, 2, || {
-        let mut candidates = Vec::new();
-        for index in 0..count {
-            let candidate_seed = image_seed.wrapping_add(index);
-            let bytes = clients::generate_image(cfg, &image_prompt, candidate_seed)?;
-            let path = candidates_dir.join(format!("image-{:02}.png", index + 1));
-            std::fs::write(&path, &bytes).context("saving an image candidate")?;
-            let (width, height) = media::png_size(&path)?;
-            if (width, height) != (cfg.width, cfg.height) {
-                log(
-                    tx,
-                    format!(
-                        "warning: candidate {} returned {width}x{height} instead of {}x{}",
-                        index + 1,
-                        cfg.width,
-                        cfg.height
-                    ),
-                );
-            }
-            log(
-                tx,
-                format!(
-                    "image candidate {}/{}: {} (seed {candidate_seed}, {:.1} MB)",
-                    index + 1,
-                    count,
-                    path.display(),
-                    bytes.len() as f64 / 1e6
-                ),
-            );
-            candidates.push(Candidate {
-                file: path,
-                seed: candidate_seed,
-            });
-        }
-        Ok(candidates)
+    let (image_scored, image_patches, image_rounds, image_reason) = step(tx, 2, || {
+        image_pool(
+            cfg,
+            tx,
+            &candidates_dir,
+            &mut image_prompt,
+            image_seed,
+            count as usize,
+            &image_references,
+        )
     })?;
+    let images: Vec<Candidate> = image_scored
+        .iter()
+        .map(|item| item.candidate.clone())
+        .collect();
     log(
         tx,
         format!(
-            "image pool: {} candidates in {:.1} min",
+            "image pool: {} candidates in {:.1} min · {}",
             images.len(),
-            image_started.elapsed().as_secs_f64() / 60.0
+            image_started.elapsed().as_secs_f64() / 60.0,
+            image_reason
         ),
     );
 
     let source = step(tx, 3, || media::download_audio(url, &work))?;
     log(tx, format!("source: {}", source.display()));
 
-    let reference = step(tx, 4, || media::pick_reference(cfg, &source, &work))?;
+    let reference = step(tx, 4, || {
+        if cfg.audio_reference.as_os_str().is_empty() {
+            media::pick_reference(cfg, &source, &work)
+        } else {
+            media::prepare_reference(&cfg.audio_reference, &work, cfg.reference_sec)
+        }
+    })?;
+    let reference_origin = if cfg.audio_reference.as_os_str().is_empty() {
+        "source window"
+    } else {
+        "AUDIO_REFERENCE"
+    };
     log(
         tx,
         format!(
-            "reference: {} ({:.0} s)",
+            "reference ({reference_origin}): {} ({:.0} s)",
             reference.display(),
             media::duration_secs(&reference)?
         ),
@@ -216,8 +245,11 @@ fn run(
     let remote = step(tx, 5, || media::push_reference(cfg, &reference, &slug))?;
     log(tx, format!("remote reference: {remote}"));
 
-    let audio_prompt = compose_audio_prompt(vibe, &cfg.audio_style);
-    log(tx, format!("prompt audio: {audio_prompt}"));
+    let mut audio_prompt = retry::Prompt::new(
+        compose_audio_prompt(vibe, &cfg.audio_style),
+        cfg.audio_negative_prompt.clone(),
+    );
+    log(tx, format!("prompt audio: {}", audio_prompt.positive));
 
     let drafts_result = step(tx, 6, || {
         // The timbre reference pushes ACE-Step past what fits next to the 4B,
@@ -226,46 +258,31 @@ fn run(
         media::ssh_run(cfg, &cfg.llm_stop_cmd)?;
         media::ssh_run(cfg, &cfg.audio_start_cmd)?;
         clients::wait_audio(cfg, Duration::from_secs(180))?;
-        let mut candidates = Vec::new();
-        for index in 0..count {
-            let candidate_seed = seed.wrapping_add(index);
-            let bytes = clients::generate_audio(
-                cfg,
-                clients::AudioRequest {
-                    prompt: &audio_prompt,
-                    reference: &remote,
-                    seed: candidate_seed,
-                    duration_sec: cfg.audio_draft_sec.max(10),
-                    steps: cfg.audio_draft_steps.max(1),
-                    sampler: &cfg.audio_draft_sampler,
-                },
-            )?;
-            let path = candidates_dir.join(format!("audio-{:02}.wav", index + 1));
-            std::fs::write(&path, &bytes).context("saving an audio draft")?;
-            log(
-                tx,
-                format!(
-                    "audio draft {}/{}: {} (seed {candidate_seed}, {:.0} s)",
-                    index + 1,
-                    count,
-                    path.display(),
-                    media::duration_secs(&path)?
-                ),
-            );
-            candidates.push(Candidate {
-                file: path,
-                seed: candidate_seed,
-            });
-        }
-        Ok(candidates)
+        audio_pool(AudioPool {
+            cfg,
+            tx,
+            dir: &candidates_dir,
+            prompt: &mut audio_prompt,
+            reference: &remote,
+            seed,
+            count: count as usize,
+        })
     });
-    let audios = match drafts_result {
-        Ok(audios) => audios,
+    let (audio_scored, audio_patches, audio_rounds, audio_reason) = match drafts_result {
+        Ok(pool) => pool,
         Err(err) => {
             let _ = media::ssh_run(cfg, &cfg.audio_stop_cmd);
             return Err(err);
         }
     };
+    let audios: Vec<Candidate> = audio_scored
+        .iter()
+        .map(|item| item.candidate.clone())
+        .collect();
+    let rounds = image_rounds.max(audio_rounds);
+    let stop = format!("image: {image_reason}; audio: {audio_reason}");
+    let mut patches = image_patches;
+    patches.extend(audio_patches);
 
     // The audio server stays loaded while the review is open and the final
     // take runs, then it is released even if something fails.
@@ -273,9 +290,15 @@ fn run(
         images: images.clone(),
         audios: audios.clone(),
     };
+    let default = Selection {
+        image: best_index(&image_scored).unwrap_or(0),
+        audio: best_index(&audio_scored).unwrap_or(0),
+    };
+    let deterministic = findings_brief(&image_scored, &audio_scored);
     let (selection, judge_summary) = step(tx, 7, || {
         let mut suggestion = None;
         let mut summary = None;
+        let mut note = None;
         if judge::enabled(cfg) {
             log(
                 tx,
@@ -284,20 +307,29 @@ fn run(
                     judge::describe(cfg)
                 ),
             );
-            match judge::decide(cfg, vibe, &images, &audios, &work) {
+            let request = judge::Request {
+                vibe,
+                images: &images,
+                audios: &audios,
+                work: &work,
+                findings: Some(&deterministic),
+            };
+            match judge::decide(cfg, request) {
                 Ok(verdict) => {
-                    let note = format!(
-                        "judge: image {} · audio {} · score {} · {}",
+                    let detail = format!(
+                        "image {} · audio {} · score {}{} · {}",
                         verdict.image + 1,
                         verdict.audio + 1,
                         verdict.score,
+                        verdict.must_fix_suffix(),
                         verdict.reason
                     );
-                    log(tx, note.clone());
+                    log(tx, format!("judge: {detail}"));
                     suggestion = Some(Selection {
                         image: verdict.image,
                         audio: verdict.audio,
                     });
+                    note = Some(detail);
                     summary = Some(verdict.summary());
                 }
                 Err(error) => log(
@@ -314,10 +346,8 @@ fn run(
         let request = ReviewRequest {
             pool: pool.clone(),
             suggestion,
-            note: summary
-                .as_ref()
-                .and_then(|value| value["reason"].as_str())
-                .map(str::to_string),
+            default,
+            note,
         };
         let _ = tx.send(Msg::Choose(request));
         let selection = decisions.recv().context("the review was cancelled")?;
@@ -342,7 +372,7 @@ fn run(
         let bytes = clients::generate_audio(
             cfg,
             clients::AudioRequest {
-                prompt: &audio_prompt,
+                prompt: &audio_prompt.positive,
                 reference: &remote,
                 seed: selected_audio.seed,
                 duration_sec: cfg.duration_sec,
@@ -396,7 +426,13 @@ fn run(
     })?;
 
     let video = step(tx, 10, || {
-        let video = media::assemble_video(cfg, &final_image, &final_audio, &root)?;
+        let video::Rendered {
+            file: video,
+            renderer,
+            particles,
+        } = video::render(cfg, &final_image, &final_audio, &root, &mut |line| {
+            log(tx, line)
+        })?;
         let megabytes = std::fs::metadata(&video)
             .map(|meta| meta.len())
             .unwrap_or(0) as f64
@@ -406,12 +442,19 @@ fn run(
             format!("video: {} ({megabytes:.1} MB)", video.display()),
         );
 
-        let image_candidates: Vec<_> = images
+        let image_candidates: Vec<_> = image_scored
             .iter()
-            .map(|candidate| {
+            .map(|item| {
                 serde_json::json!({
-                    "file": candidate.file.display().to_string(),
-                    "seed": candidate.seed,
+                    "file": item.candidate.file.display().to_string(),
+                    "seed": item.candidate.seed,
+                    "prompt": item.prompt,
+                    "negative_prompt": item.negative,
+                    "references": item
+                        .references
+                        .iter()
+                        .map(|path| path.display().to_string())
+                        .collect::<Vec<_>>(),
                 })
             })
             .collect();
@@ -429,19 +472,20 @@ fn run(
             "slug": slug,
             "source_url": url,
             "vibe": vibe,
-            "image_prompt": image_prompt,
+            "image_prompt": &image_prompt.positive,
             "seed": selected_audio.seed,
             "image": {
                 "size": format!("{}x{}", cfg.width, cfg.height),
                 "steps": cfg.image_steps,
+                "negative_prompt": &image_prompt.negative,
                 "candidates": image_candidates,
                 "selected": selection.image + 1,
                 "file": final_image.display().to_string(),
             },
             "audio": {
                 "model": cfg.audio_model,
-                "prompt": audio_prompt,
-                "negative_prompt": cfg.audio_negative_prompt,
+                "prompt": &audio_prompt.positive,
+                "negative_prompt": &audio_prompt.negative,
                 "draft": {
                     "duration_sec": cfg.audio_draft_sec,
                     "steps": cfg.audio_draft_steps,
@@ -463,6 +507,15 @@ fn run(
             "video": {
                 "file": video.display().to_string(),
                 "size": format!("{}x{}", cfg.video_width, cfg.video_height),
+                "renderer": renderer,
+                "particles": particles,
+            },
+            "retry": {
+                "rounds": rounds,
+                "image_rounds": image_rounds,
+                "audio_rounds": audio_rounds,
+                "stop": { "image": image_reason, "audio": audio_reason },
+                "patches": patches,
             },
             "judge": judge_summary,
         });
@@ -470,58 +523,521 @@ fn run(
         Ok(video)
     })?;
 
-    record_history(cfg, tx, &root, &slug, vibe, &started_at, clock);
+    let seconds = clock.elapsed().as_secs_f64();
+    record_history(
+        cfg,
+        tx,
+        HistoryInput {
+            root: &root,
+            slug: &slug,
+            vibe,
+            started_at: &started_at,
+            seconds,
+            rounds,
+            patches: &patches,
+            stop: &stop,
+        },
+    );
 
     Ok(Outcome {
         audio: final_audio,
         image: final_image,
         video,
         seed: selected_audio.seed,
-        image_prompt,
+        image_prompt: image_prompt.positive,
     })
+}
+
+/// The TUI selects with 1-9, so the pool never grows past nine per side.
+const MAX_POOL: usize = 9;
+
+/// A candidate with its deterministic score, when scoring did not fail, and
+/// the prompt that produced it. The prompt is per candidate because a retry
+/// round can change it.
+struct Scored {
+    candidate: Candidate,
+    side: Option<score::SideScore>,
+    prompt: String,
+    negative: String,
+    references: Vec<PathBuf>,
+}
+
+fn best_index(pool: &[Scored]) -> Option<usize> {
+    let mut best: Option<usize> = None;
+    for (index, item) in pool.iter().enumerate() {
+        let Some(side) = &item.side else { continue };
+        let better = best.is_none_or(|current: usize| {
+            let current_score = pool[current]
+                .side
+                .as_ref()
+                .map_or(f64::MIN, |value| value.score);
+            side.score > current_score
+        });
+        if better {
+            best = Some(index);
+        }
+    }
+    best
+}
+
+/// Eight points of the 50-point audio side, in normalized terms.
+fn audio_lost_enough(score: f64) -> bool {
+    (100.0 - score) / 2.0 >= 8.0
+}
+
+fn log_best(tx: &Sender<Msg>, label: &str, pool: &[Scored]) {
+    if let Some(index) = best_index(pool)
+        && let Some(side) = &pool[index].side
+    {
+        let name = pool[index]
+            .candidate
+            .file
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("?");
+        log(tx, format!("{label} best: {:.1} ({name})", side.score));
+    }
+}
+
+struct ImageRound<'a> {
+    cfg: &'a Config,
+    tx: &'a Sender<Msg>,
+    dir: &'a Path,
+    prompt: &'a retry::Prompt,
+    seed: u32,
+    start: usize,
+    count: usize,
+    references: &'a [PathBuf],
+}
+
+fn generate_images(round: ImageRound<'_>) -> Result<Vec<Scored>> {
+    let mut scored = Vec::with_capacity(round.count);
+    for offset in 0..round.count {
+        let position = round.start + offset;
+        let candidate_seed = round.seed.wrapping_add(position as u32);
+        let bytes = clients::generate_image(
+            round.cfg,
+            &round.prompt.positive,
+            &round.prompt.negative,
+            candidate_seed,
+            round.references,
+        )?;
+        let path = round.dir.join(format!("image-{:02}.png", position + 1));
+        std::fs::write(&path, &bytes).context("saving an image candidate")?;
+        let (width, height) = media::png_size(&path)?;
+        if (width, height) != (round.cfg.width, round.cfg.height) {
+            log(
+                round.tx,
+                format!(
+                    "warning: candidate {} returned {width}x{height} instead of {}x{}",
+                    position + 1,
+                    round.cfg.width,
+                    round.cfg.height
+                ),
+            );
+        }
+        log(
+            round.tx,
+            format!(
+                "image candidate {}: {} (seed {candidate_seed}, {:.1} MB)",
+                position + 1,
+                path.display(),
+                bytes.len() as f64 / 1e6
+            ),
+        );
+        let candidate = Candidate {
+            file: path,
+            seed: candidate_seed,
+        };
+        let mut item = Scored {
+            candidate,
+            side: None,
+            prompt: round.prompt.positive.clone(),
+            negative: round.prompt.negative.clone(),
+            references: round.references.to_vec(),
+        };
+        match score::image_side(&item.candidate.file) {
+            Ok(side) => item.side = Some(side),
+            Err(error) => log(
+                round.tx,
+                format!(
+                    "warning: could not score {}: {error:#}",
+                    item.candidate.file.display()
+                ),
+            ),
+        }
+        scored.push(item);
+    }
+    Ok(scored)
+}
+
+struct AudioRound<'a> {
+    cfg: &'a Config,
+    tx: &'a Sender<Msg>,
+    dir: &'a Path,
+    prompt: &'a retry::Prompt,
+    reference: &'a str,
+    seed: u32,
+    start: usize,
+    count: usize,
+    target: f64,
+}
+
+fn generate_drafts(round: AudioRound<'_>) -> Result<Vec<Scored>> {
+    let mut scored = Vec::with_capacity(round.count);
+    for offset in 0..round.count {
+        let position = round.start + offset;
+        let candidate_seed = round.seed.wrapping_add(position as u32);
+        let bytes = clients::generate_audio(
+            round.cfg,
+            clients::AudioRequest {
+                prompt: &round.prompt.positive,
+                reference: round.reference,
+                seed: candidate_seed,
+                duration_sec: round.cfg.audio_draft_sec.max(10),
+                steps: round.cfg.audio_draft_steps.max(1),
+                sampler: &round.cfg.audio_draft_sampler,
+            },
+        )?;
+        let path = round.dir.join(format!("audio-{:02}.wav", position + 1));
+        std::fs::write(&path, &bytes).context("saving an audio draft")?;
+        log(
+            round.tx,
+            format!(
+                "audio draft {}: {} (seed {candidate_seed}, {:.0} s)",
+                position + 1,
+                path.display(),
+                media::duration_secs(&path)?
+            ),
+        );
+        let candidate = Candidate {
+            file: path,
+            seed: candidate_seed,
+        };
+        let mut item = Scored {
+            candidate,
+            side: None,
+            prompt: round.prompt.positive.clone(),
+            negative: round.prompt.negative.clone(),
+            references: Vec::new(),
+        };
+        match score::draft_side(&item.candidate.file, round.target) {
+            Ok(side) => item.side = Some(side),
+            Err(error) => log(
+                round.tx,
+                format!(
+                    "warning: could not score {}: {error:#}",
+                    item.candidate.file.display()
+                ),
+            ),
+        }
+        scored.push(item);
+    }
+    Ok(scored)
+}
+
+/// Generates the image pool and retries it while sd-server is still up. The
+/// best candidate of the grown pool is kept; the review sees all of them.
+fn image_pool(
+    cfg: &Config,
+    tx: &Sender<Msg>,
+    dir: &Path,
+    prompt: &mut retry::Prompt,
+    seed: u32,
+    count: usize,
+    refs: &[PathBuf],
+) -> Result<(Vec<Scored>, Vec<retry::Applied>, u32, String)> {
+    let budget = cfg.score_rounds.min(retry::IMAGE_ROUNDS);
+    let reference_count = cfg.image_reference_count as usize;
+    let initial_refs = references::pick(refs, 0, reference_count);
+    let mut pool = generate_images(ImageRound {
+        cfg,
+        tx,
+        dir,
+        prompt,
+        seed,
+        start: 0,
+        count,
+        references: &initial_refs,
+    })?;
+    let mut patches = Vec::new();
+    let mut used = BTreeSet::new();
+    let mut rounds = 0;
+    let mut reason = if budget == 0 {
+        "the image retry is disabled".to_string()
+    } else {
+        String::new()
+    };
+    log_best(tx, "image", &pool);
+
+    for round in 1..=budget {
+        let Some(best) = best_index(&pool) else {
+            reason = "no image candidate could be scored".to_string();
+            break;
+        };
+        let Some(side) = pool[best].side.as_ref() else {
+            break;
+        };
+        if side.score >= score::TARGET_TECHNICAL {
+            reason = format!("the best image scores {:.1}", side.score);
+            break;
+        }
+        let Some((patch, finding)) = retry::choose(&side.findings, &used) else {
+            reason = format!("no patchable finding at {:.1}", side.score);
+            break;
+        };
+        if pool.len() >= MAX_POOL {
+            reason = format!("the pool is full ({MAX_POOL})");
+            break;
+        }
+        let applied = prompt.apply(patch, finding.code);
+        used.insert(patch.key);
+        let add = count.min(MAX_POOL - pool.len());
+        log(
+            tx,
+            format!(
+                "retry image {round}/{budget}: {} {:+.1}, {add} new candidate(s)",
+                finding.code, finding.delta
+            ),
+        );
+        let retry_refs =
+            references::pick(refs, (round as usize) * reference_count, reference_count);
+        pool.extend(generate_images(ImageRound {
+            cfg,
+            tx,
+            dir,
+            prompt,
+            seed,
+            start: pool.len(),
+            count: add,
+            references: &retry_refs,
+        })?);
+        patches.push(applied);
+        rounds = round;
+        log_best(tx, "image", &pool);
+    }
+
+    if reason.is_empty() {
+        reason = match best_index(&pool).and_then(|index| pool[index].side.as_ref()) {
+            Some(side) if side.score >= score::TARGET_TECHNICAL => {
+                format!("the best image scores {:.1}", side.score)
+            }
+            Some(side) => format!("the image budget is exhausted at {:.1}", side.score),
+            None => "no image candidate could be scored".to_string(),
+        };
+    }
+    Ok((pool, patches, rounds, reason))
+}
+
+struct AudioPool<'a> {
+    cfg: &'a Config,
+    tx: &'a Sender<Msg>,
+    dir: &'a Path,
+    prompt: &'a mut retry::Prompt,
+    reference: &'a str,
+    seed: u32,
+    count: usize,
+}
+
+/// Generates the drafts and runs at most one audio round when the audio lost
+/// eight points or more of its 50. The image side does not gate it.
+fn audio_pool(request: AudioPool<'_>) -> Result<(Vec<Scored>, Vec<retry::Applied>, u32, String)> {
+    let AudioPool {
+        cfg,
+        tx,
+        dir,
+        prompt,
+        reference,
+        seed,
+        count,
+    } = request;
+    let budget = cfg.score_rounds.min(retry::AUDIO_ROUNDS);
+    let target = cfg.duration_sec as f64;
+    let mut pool = generate_drafts(AudioRound {
+        cfg,
+        tx,
+        dir,
+        prompt,
+        reference,
+        seed,
+        start: 0,
+        count,
+        target,
+    })?;
+    let mut patches = Vec::new();
+    let mut used = BTreeSet::new();
+    let mut rounds = 0;
+    let mut reason = if budget == 0 {
+        "the audio retry is disabled".to_string()
+    } else {
+        String::new()
+    };
+    log_best(tx, "audio", &pool);
+
+    for round in 1..=budget {
+        let Some(best) = best_index(&pool) else {
+            reason = "no audio candidate could be scored".to_string();
+            break;
+        };
+        let Some(side) = pool[best].side.as_ref() else {
+            break;
+        };
+        if side.score >= score::TARGET_TECHNICAL {
+            reason = format!("the best audio scores {:.1}", side.score);
+            break;
+        }
+        let lost = (100.0 - side.score) / 2.0;
+        if !audio_lost_enough(side.score) {
+            reason = format!("the audio lost {lost:.1} points, under the 8-point rule");
+            break;
+        }
+        let Some((patch, finding)) = retry::choose(&side.findings, &used) else {
+            reason = format!("no patchable finding at {:.1}", side.score);
+            break;
+        };
+        if pool.len() >= MAX_POOL {
+            reason = format!("the pool is full ({MAX_POOL})");
+            break;
+        }
+        let applied = prompt.apply(patch, finding.code);
+        used.insert(patch.key);
+        let add = count.min(MAX_POOL - pool.len());
+        log(
+            tx,
+            format!(
+                "retry audio {round}/{budget}: {} {:+.1}, {add} new candidate(s)",
+                finding.code, finding.delta
+            ),
+        );
+        pool.extend(generate_drafts(AudioRound {
+            cfg,
+            tx,
+            dir,
+            prompt,
+            reference,
+            seed,
+            start: pool.len(),
+            count: add,
+            target,
+        })?);
+        patches.push(applied);
+        rounds = round;
+        log_best(tx, "audio", &pool);
+    }
+
+    if reason.is_empty() {
+        reason = match best_index(&pool).and_then(|index| pool[index].side.as_ref()) {
+            Some(side) if side.score >= score::TARGET_TECHNICAL => {
+                format!("the best audio scores {:.1}", side.score)
+            }
+            Some(side) => format!("the audio budget is exhausted at {:.1}", side.score),
+            None => "no audio candidate could be scored".to_string(),
+        };
+    }
+    Ok((pool, patches, rounds, reason))
+}
+
+/// Compact text for the judge so it does not repeat what the rubric measured.
+/// The worst findings across both sides survive the 16-line cap.
+fn findings_brief(images: &[Scored], audios: &[Scored]) -> String {
+    let mut lines: Vec<(f64, String)> = Vec::new();
+    for (label, pool) in [("image", images), ("audio", audios)] {
+        for (index, item) in pool.iter().enumerate() {
+            let Some(side) = &item.side else { continue };
+            for finding in &side.findings {
+                if finding.delta > -retry::MIN_LOSS {
+                    continue;
+                }
+                lines.push((
+                    finding.delta,
+                    format!(
+                        "{} {}: {} {} (lost {:.1})",
+                        label,
+                        index + 1,
+                        finding.code,
+                        finding.message,
+                        finding.delta
+                    ),
+                ));
+            }
+        }
+    }
+    lines.sort_by(|left, right| left.0.total_cmp(&right.0));
+    lines.truncate(16);
+    if lines.is_empty() {
+        "none".to_string()
+    } else {
+        lines
+            .into_iter()
+            .map(|(_, line)| line)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+struct HistoryInput<'a> {
+    root: &'a Path,
+    slug: &'a str,
+    vibe: &'a str,
+    started_at: &'a str,
+    seconds: f64,
+    rounds: u32,
+    patches: &'a [retry::Applied],
+    stop: &'a str,
 }
 
 /// Scores the finished run and appends it to the local database. Failures are
 /// logged and never abort the run, the same way the judge fails open.
-fn record_history(
-    cfg: &Config,
-    tx: &Sender<Msg>,
-    root: &Path,
-    slug: &str,
-    vibe: &str,
-    started_at: &str,
-    clock: Instant,
-) {
-    let record = history::RunRecord {
-        db: &cfg.db_path,
-        dir: root,
-        slug,
-        vibe,
-        started_at,
-        seconds: clock.elapsed().as_secs_f64(),
-        rounds: 0,
-    };
+fn record_history(cfg: &Config, tx: &Sender<Msg>, input: HistoryInput<'_>) {
     log(tx, "history: scoring the run for the local database");
-    let result = score::score_run(root).and_then(|score| {
-        score::write_json(root, &score)?;
+    let result = (|| -> Result<(i64, score::RunScore, String)> {
+        let score = score::score_run(input.root)?;
+        score::write_json(input.root, &score)?;
+        let outcome = if score.accepted {
+            "accepted"
+        } else {
+            "accepted_by_limit"
+        }
+        .to_string();
+        let reason = if score.accepted {
+            None
+        } else {
+            Some(format!(
+                "{}; technical {:.1}, total {:.1}",
+                input.stop, score.technical, score.total
+            ))
+        };
+        let record = history::RunRecord {
+            db: &cfg.db_path,
+            dir: input.root,
+            slug: input.slug,
+            vibe: input.vibe,
+            started_at: input.started_at,
+            seconds: input.seconds,
+            rounds: input.rounds,
+            patches: input.patches,
+            outcome: &outcome,
+            outcome_reason: reason.as_deref(),
+        };
         let id = history::insert(&record, &score)?;
-        Ok((id, score))
-    });
+        Ok((id, score, outcome))
+    })();
     match result {
-        Ok((id, score)) => {
+        Ok((id, score, outcome)) => {
+            let editorial = score
+                .editorial
+                .map(|value| format!("{value:.1}"))
+                .unwrap_or_else(|| "-".to_string());
             log(
                 tx,
                 format!(
-                    "history: run {id} · technical {:.1} · total {:.1} · {}",
-                    score.technical,
-                    score.total,
-                    if score.accepted {
-                        "accepted"
-                    } else {
-                        "below target"
-                    }
+                    "history: run {id} · technical {:.1} · editorial {editorial} · total {:.1} · {outcome}",
+                    score.technical, score.total
                 ),
             );
+            if !score.accepted {
+                log(tx, format!("history: accepted by limit: {}", input.stop));
+            }
             let worst = score
                 .final_image
                 .findings
@@ -585,14 +1101,5 @@ pub fn compose_audio_prompt(vibe: &str, style: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_medium_is_always_in_the_audio_prompt() {
-        let prompt = compose_audio_prompt("epic orchestral", "8-bit chiptune");
-        assert!(prompt.starts_with("epic orchestral, 8-bit chiptune"));
-        assert!(prompt.contains("instrumental"));
-        assert!(prompt.contains("fades out"));
-    }
-}
+#[path = "tests/pipeline.rs"]
+mod tests;

@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
@@ -200,9 +201,21 @@ fn with_extra_args(prompt: &str, seed: u32, steps: u32, negative_prompt: &str) -
     format!("{prompt} <sd_cpp_extra_args>{extra}</sd_cpp_extra_args>")
 }
 
-pub fn generate_image(cfg: &Config, prompt: &str, seed: u32) -> Result<Vec<u8>> {
+/// One image with an explicit negative prompt, so a retry can add to the
+/// configured one without mutating the config. A non-empty reference list uses
+/// the sdapi endpoint, which is the one that carries `extra_images`.
+pub fn generate_image(
+    cfg: &Config,
+    prompt: &str,
+    negative_prompt: &str,
+    seed: u32,
+    references: &[PathBuf],
+) -> Result<Vec<u8>> {
+    if !references.is_empty() {
+        return generate_image_with_references(cfg, prompt, negative_prompt, seed, references);
+    }
     let url = format!("{}/v1/images/generations", cfg.sd_url.trim_end_matches('/'));
-    let prompt = with_extra_args(prompt, seed, cfg.image_steps, &cfg.image_negative_prompt);
+    let prompt = with_extra_args(prompt, seed, cfg.image_steps, negative_prompt);
     let body = json!({
         "prompt": prompt,
         "n": 1,
@@ -224,23 +237,46 @@ pub fn generate_image(cfg: &Config, prompt: &str, seed: u32) -> Result<Vec<u8>> 
         .context("invalid base64 image")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn glowing_eyes_are_sanitized() {
-        let prompt = sanitize_eye_prompt("a girl with glowing red eyes in a forest");
-        assert_eq!(prompt, "a girl with soft green eyes in a forest");
-    }
-
-    #[test]
-    fn image_extra_args_carry_seed_and_steps() {
-        let prompt = with_extra_args("pixel art", 42, 12, "glowing eyes");
-        assert!(prompt.starts_with("pixel art <sd_cpp_extra_args>"));
-        assert!(prompt.contains("\"seed\":42"));
-        assert!(prompt.contains("\"sample_steps\":12"));
-        assert!(prompt.contains("\"negative_prompt\":\"glowing eyes\""));
-        assert!(prompt.ends_with("</sd_cpp_extra_args>"));
-    }
+fn generate_image_with_references(
+    cfg: &Config,
+    prompt: &str,
+    negative_prompt: &str,
+    seed: u32,
+    references: &[PathBuf],
+) -> Result<Vec<u8>> {
+    let url = format!("{}/sdapi/v1/txt2img", cfg.sd_url.trim_end_matches('/'));
+    let extra_images = references
+        .iter()
+        .map(|path| {
+            let bytes = std::fs::read(path)
+                .with_context(|| format!("reading reference {}", path.display()))?;
+            Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+        })
+        .collect::<Result<Vec<String>>>()?;
+    let body = json!({
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "width": cfg.width,
+        "height": cfg.height,
+        "steps": cfg.image_steps,
+        "seed": seed,
+        "extra_images": extra_images,
+    });
+    let resp: serde_json::Value = long_client()?
+        .post(&url)
+        .json(&body)
+        .send()
+        .and_then(|r| r.error_for_status())
+        .with_context(|| format!("sd-server (references) failed at {url}"))?
+        .json()?;
+    let b64 = resp["images"][0]
+        .as_str()
+        .context("sdapi response without images[0]")?;
+    base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .context("invalid base64 image")
 }
+
+#[cfg(test)]
+#[path = "tests/clients.rs"]
+mod tests;

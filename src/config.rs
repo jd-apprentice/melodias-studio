@@ -43,11 +43,19 @@ pub struct Config {
     pub height: u32,
     pub video_width: u32,
     pub video_height: u32,
+    /// `remotion` (default) or `ffmpeg`; ffmpeg is explicit only.
+    pub video_renderer: String,
+    /// `both` (default), `bokeh` or `sparks`.
+    pub video_particles: String,
+    /// Remotion project, relative to the working directory.
+    pub video_project: PathBuf,
     pub judge_enabled: bool,
     /// `auto`, `opencode` or `openrouter`.
     pub judge_provider: String,
     pub opencode_api_key: String,
     pub openrouter_api_key: String,
+    /// Optional key for `melodias refs fetch --source pixabay`.
+    pub pixabay_api_key: String,
     /// Model id for the OpenCode Go backend (Gemini native API).
     pub judge_model: String,
     pub judge_omni_model: String,
@@ -58,12 +66,22 @@ pub struct Config {
     pub image_steps: u32,
     /// Optional fixed seed to reproduce an image candidate.
     pub image_seed: Option<u32>,
+    /// Optional folder of reference thumbnails, grouped by concept.
+    pub image_references: PathBuf,
+    /// How many references to send per generation.
+    pub image_reference_count: u32,
+    /// Force a concept subfolder instead of matching the vibe.
+    pub image_reference_concept: String,
     /// Number of candidates per modality.
     pub candidates: u32,
+    /// Deterministic retry rounds; 0 disables the loop.
+    pub score_rounds: u32,
     pub audio_draft_sec: u32,
     pub audio_draft_steps: u32,
     pub audio_draft_sampler: String,
     pub reference_sec: u32,
+    /// Optional WAV used instead of a window of the source video.
+    pub audio_reference: PathBuf,
     pub fade_in_sec: f64,
     pub fade_out_sec: f64,
     pub loudness_lufs: f64,
@@ -143,6 +161,12 @@ impl Config {
             height: pick_parsed(env("HEIGHT"), file.height, 720),
             video_width: pick_parsed(env("VIDEO_WIDTH"), file.video_width, 1920),
             video_height: pick_parsed(env("VIDEO_HEIGHT"), file.video_height, 1080),
+            video_renderer: pick(env("VIDEO_RENDERER"), file.video_renderer, "remotion"),
+            video_particles: pick(env("VIDEO_PARTICLES"), file.video_particles, "both"),
+            video_project: env("VIDEO_PROJECT")
+                .map(PathBuf::from)
+                .or(file.video_project)
+                .unwrap_or_else(|| PathBuf::from("video")),
             // On by default: the judge itself is skipped when no key is set.
             judge_enabled: env("JUDGE_ENABLED")
                 .map(|value| parse_bool(&value))
@@ -154,6 +178,9 @@ impl Config {
                 .unwrap_or_default(),
             openrouter_api_key: env("OPENROUTER_API_KEY")
                 .or(file.openrouter_api_key)
+                .unwrap_or_default(),
+            pixabay_api_key: env("PIXABAY_API_KEY")
+                .or(file.pixabay_api_key)
                 .unwrap_or_default(),
             judge_model: pick(env("JUDGE_MODEL"), file.judge_model, "gemini-4-argon"),
             judge_omni_model: pick(
@@ -173,7 +200,22 @@ impl Config {
             image_seed: env("IMAGE_SEED")
                 .and_then(|value| value.parse().ok())
                 .or(file.image_seed),
+            image_references: env("IMAGE_REFERENCES")
+                .map(PathBuf::from)
+                .or(file.image_references)
+                .unwrap_or_default(),
+            image_reference_count: pick_parsed(
+                env("IMAGE_REFERENCE_COUNT"),
+                file.image_reference_count,
+                3,
+            ),
+            image_reference_concept: pick(
+                env("IMAGE_REFERENCE_CONCEPT"),
+                file.image_reference_concept,
+                "",
+            ),
             candidates: pick_parsed(env("CANDIDATES"), file.candidates, 3),
+            score_rounds: pick_parsed(env("SCORE_ROUNDS"), file.score_rounds, 2),
             audio_draft_sec: pick_parsed(env("AUDIO_DRAFT_SEC"), file.audio_draft_sec, 60),
             audio_draft_steps: pick_parsed(env("AUDIO_DRAFT_STEPS"), file.audio_draft_steps, 16),
             audio_draft_sampler: pick(
@@ -182,6 +224,10 @@ impl Config {
                 "euler",
             ),
             reference_sec: pick_parsed(env("REFERENCE_SEC"), file.reference_sec, 60),
+            audio_reference: env("AUDIO_REFERENCE")
+                .map(PathBuf::from)
+                .or(file.audio_reference)
+                .unwrap_or_default(),
             fade_in_sec: pick_parsed(env("FADE_IN_SEC"), file.fade_in_sec, 1.5),
             fade_out_sec: pick_parsed(env("FADE_OUT_SEC"), file.fade_out_sec, 3.0),
             loudness_lufs: pick_parsed(env("LOUDNESS_LUFS"), file.loudness_lufs, -15.0),
@@ -264,10 +310,14 @@ struct FileConfig {
     height: Option<u32>,
     video_width: Option<u32>,
     video_height: Option<u32>,
+    video_renderer: Option<String>,
+    video_particles: Option<String>,
+    video_project: Option<PathBuf>,
     judge_enabled: Option<bool>,
     judge_provider: Option<String>,
     opencode_api_key: Option<String>,
     openrouter_api_key: Option<String>,
+    pixabay_api_key: Option<String>,
     judge_model: Option<String>,
     judge_omni_model: Option<String>,
     judge_reasoner_model: Option<String>,
@@ -276,11 +326,16 @@ struct FileConfig {
     judge_timeout_sec: Option<u64>,
     image_steps: Option<u32>,
     image_seed: Option<u32>,
+    image_references: Option<PathBuf>,
+    image_reference_count: Option<u32>,
+    image_reference_concept: Option<String>,
     candidates: Option<u32>,
+    score_rounds: Option<u32>,
     audio_draft_sec: Option<u32>,
     audio_draft_steps: Option<u32>,
     audio_draft_sampler: Option<String>,
     reference_sec: Option<u32>,
+    audio_reference: Option<PathBuf>,
     fade_in_sec: Option<f64>,
     fade_out_sec: Option<f64>,
     loudness_lufs: Option<f64>,
@@ -308,36 +363,5 @@ impl FileConfig {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reads_the_optional_fields() {
-        let text = r#"
-            ssh_host = "user@10.0.0.5"
-            duration_sec = 240
-            fade_in_sec = 2.0
-            audio_negative_prompt = "vocals"
-            audio_style = "lofi"
-            image_style = "watercolor"
-            image_negative_prompt = "glowing eyes"
-            image_steps = 12
-            image_seed = 42
-            candidates = 3
-            audio_draft_sec = 60
-        "#;
-        let file: FileConfig = toml::from_str(text).unwrap();
-        assert_eq!(file.ssh_host.as_deref(), Some("user@10.0.0.5"));
-        assert_eq!(file.duration_sec, Some(240));
-        assert_eq!(file.fade_in_sec, Some(2.0));
-        assert_eq!(file.audio_negative_prompt.as_deref(), Some("vocals"));
-        assert_eq!(file.audio_style.as_deref(), Some("lofi"));
-        assert_eq!(file.image_style.as_deref(), Some("watercolor"));
-        assert_eq!(file.image_negative_prompt.as_deref(), Some("glowing eyes"));
-        assert_eq!(file.image_steps, Some(12));
-        assert_eq!(file.image_seed, Some(42));
-        assert_eq!(file.candidates, Some(3));
-        assert_eq!(file.audio_draft_sec, Some(60));
-        assert_eq!(file.steps, None);
-    }
-}
+#[path = "tests/config.rs"]
+mod tests;
