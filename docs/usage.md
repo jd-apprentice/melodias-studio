@@ -163,6 +163,33 @@ make image DIR=output/<slug>
 
 It keeps the old file as `thumbnail-old.png`, appends the new image to `candidates/`, updates `meta.json` and rebuilds `video.mp4`. The current prompt is sanitized so the eyes stay natural and the configured image negative prompt is applied.
 
+### Chip covers (experimental)
+
+`melodias chip <url|file>` renders an NES-style cover without touching the main pipeline. It downloads the audio, separates stems with Demucs, transcribes melody and bass with Basic Pitch, writes a FamiStudio project, renders it, and mixes a stereo master with echo, arpeggios, vibrato and portamento.
+
+```bash
+melodias chip 'https://www.youtube.com/watch?v=...' --title "Battle theme"
+melodias chip song.wav --out /tmp/chip --keep-work
+```
+
+Output: `output/chip/<slug>/` with `audio.wav`, `audio.mp3`, `preview.mp3`, `project.txt` and `meta.json`.
+
+It needs three things outside the repo, all user-local:
+
+```bash
+# Demucs + Basic Pitch in an isolated virtualenv
+uv venv ~/.local/share/melodias-studio/venvs/audio8bit --python 3.11
+uv pip install --python ~/.local/share/melodias-studio/venvs/audio8bit/bin/python \
+  demucs basic-pitch 'numpy<2' 'tensorflow==2.15.0' 'setuptools<81'
+
+# FamiStudio 4.5.4 and a local .NET 8 runtime
+mkdir -p ~/.local/share/melodias-studio/tools
+# unzip FamiStudio454-LinuxAMD64.zip into tools/famistudio
+# install .NET 8 with dotnet-install.sh into tools/dotnet
+```
+
+Override the paths with `CHIP_VENV`, `FAMISTUDIO_BIN` and `DOTNET_ROOT`. The project text opens in FamiStudio for manual edits, and the CLI can export NSF or ROM from it.
+
 ## Make shortcuts
 
 | Target | What it does |

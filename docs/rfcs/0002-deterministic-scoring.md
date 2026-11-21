@@ -249,7 +249,7 @@ The `rubric` column matters: a threshold change starts a new version, and trends
 
 ### Backfill
 
-`scripts/backfill-history.sh`, also available as `make backfill`, scores the runs already in `output/` with the same rubric, so the history starts with data. It skips a slug that is already present and rewrites it with `--replace`. It writes the same tables as the pipeline, so `melodias history` reads both. The first database was built this way, before any pipeline change. All three runs scored below the target, which is the expected starting point:
+`melodias backfill`, also available as `make backfill`, scores the runs already in `output/` with the same rubric, so the history starts with data. It skips a slug that is already present and rewrites it with `--replace`. It writes the same tables as the pipeline, so `melodias history` reads both. The first database was built this way, before any pipeline change. All three runs scored below the target, which is the expected starting point:
 
 | Run | Technical | Editorial | Total |
 | --- | --- | --- | --- |
@@ -318,7 +318,7 @@ The editorial score is the weak part and the RFC does not hide it:
 ## Phases
 
 1. **Metrics and `melodias score`.** Done: `src/score.rs`, pure functions over pixel buffers plus parsers for `ffmpeg` output, `melodias score <dir>` and `work/score.json`, findings in the report. Every candidate and the final pair are scored; drafts skip the master-only metrics. No database, no loop.
-2. **History in every run.** Done: `rusqlite` with the bundled feature, one write at the end of a run, `melodias history` reads. `MELODIAS_DB` and the default path. Findings of the final pair are stored at run level (`candidate_id` null); the pool candidates keep their full score in `candidates.score_json`. `scripts/backfill-history.sh` covers the runs made before it existed.
+2. **History in every run.** Done: `rusqlite` with the bundled feature, one write at the end of a run, `melodias history` reads. `MELODIAS_DB` and the default path. Findings of the final pair are stored at run level (`candidate_id` null); the pool candidates keep their full score in `candidates.score_json`. `melodias backfill` covers the runs made before it existed.
 3. **Retry loop.** Done: `src/retry.rs` holds the patch table, the finding picker and the prompt application; the pipeline runs the image rounds in the image stage and the audio round in the drafts stage, records every patch in `patches`, and stores `accepted_by_limit` with a reason. The judge prompt receives the deterministic findings and asks for `must_fix` codes. The editorial axes and weights remain open.
 4. **Dashboard.** Done (first version): `melodias dashboard` serves a local read-only page over the database with the score per run and the cost per finding. It is a Rust server plus static files in `dashboard/`, polls once a minute and needs no build step. A static export over the CSV is still open.
 

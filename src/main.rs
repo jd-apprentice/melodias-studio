@@ -1,5 +1,7 @@
 mod app;
+mod backfill;
 mod banner;
+mod chip;
 mod clients;
 mod config;
 mod dashboard;
@@ -23,7 +25,9 @@ use crossterm::style::Stylize;
 
 use pipeline::{Msg, State};
 
-const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias image <dir>      (regenerate the thumbnail of a run)\n       melodias judge <dir>      (review a finished run with the judge)\n       melodias score <dir>      (score a finished run, no GPU)\n       melodias history [view]   (runs, findings or trend, from the local database)\n       melodias dashboard        (local read-only charts over the database)\n       melodias render <dir>     (produced video with Remotion)\n       melodias video <dir>      (fast video with ffmpeg)\n       melodias refs fetch       (fill the reference library from a source)\n       melodias refs import      (import files or packs into the library)\n       melodias refs generate    (generate reference images with sd-server)";
+const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias image <dir>      (regenerate the thumbnail of a run)\n       melodias judge <dir>      (review a finished run with the judge)\n       melodias score <dir>      (score a finished run, no GPU)\n       melodias history [view]   (runs, findings or trend, from the local database)
+       melodias backfill [dir]   (score finished runs into the history database)\n       melodias dashboard        (local read-only charts over the database)\n       melodias render <dir>     (produced video with Remotion)\n       melodias video <dir>      (fast video with ffmpeg)\n       melodias refs fetch       (fill the reference library from a source)\n       melodias refs import      (import files or packs into the library)\n       melodias refs generate    (generate reference images with sd-server)
+       melodias chip <url|file>  (experimental NES cover of a track)";
 
 fn main() -> io::Result<()> {
     let cfg = config::Config::from_env();
@@ -47,6 +51,9 @@ fn main() -> io::Result<()> {
     if args.first().is_some_and(|arg| arg == "history") {
         return run_history(cfg, &args);
     }
+    if args.first().is_some_and(|arg| arg == "backfill") {
+        return run_backfill(cfg, &args);
+    }
     if args.first().is_some_and(|arg| arg == "dashboard") {
         return run_dashboard(cfg, &args);
     }
@@ -58,6 +65,9 @@ fn main() -> io::Result<()> {
     }
     if args.first().is_some_and(|arg| arg == "refs") {
         return run_refs(cfg, &args);
+    }
+    if args.first().is_some_and(|arg| arg == "chip") {
+        return run_chip(cfg, &args);
     }
     if !args.is_empty() {
         return run_headless(cfg, &args);
@@ -684,6 +694,14 @@ impl Reporter {
 
 fn run_refs(cfg: config::Config, args: &[String]) -> io::Result<()> {
     refs::cli::run(&cfg, &args[1..]).map_err(|error| io::Error::other(format!("{error:#}")))
+}
+
+fn run_chip(cfg: config::Config, args: &[String]) -> io::Result<()> {
+    chip::run_chip(&cfg, &args[1..]).map_err(|error| io::Error::other(format!("{error:#}")))
+}
+
+fn run_backfill(cfg: config::Config, args: &[String]) -> io::Result<()> {
+    backfill::run(&cfg, &args[1..]).map_err(|error| io::Error::other(format!("{error:#}")))
 }
 
 #[cfg(test)]

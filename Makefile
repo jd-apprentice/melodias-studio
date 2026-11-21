@@ -62,7 +62,7 @@ score:
 	$(CARGO) run --release -- score "$(DIR)"
 
 backfill:
-	scripts/backfill-history.sh $(ARGS)
+	$(CARGO) run --release -- backfill $(ARGS)
 
 refs:
 	@test -n "$(ARGS)" || { echo 'missing ARGS, for example: make refs ARGS="fetch --source opengameart --concept castle --count 20"'; exit 2; }
