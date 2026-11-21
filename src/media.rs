@@ -167,6 +167,38 @@ pub fn pick_reference(cfg: &crate::config::Config, src: &Path, dir: &Path) -> Re
     Ok(out)
 }
 
+/// Normalizes a user-supplied reference to the same PCM WAV `pick_reference`
+/// produces, so AUDIO_REFERENCE can be a ChipForge render, a Wario Synth
+/// export or any other 8-bit bounce.
+pub fn prepare_reference(input: &Path, dir: &Path, seconds: u32) -> Result<PathBuf> {
+    if !input.is_file() {
+        bail!(
+            "the configured reference is not a file: {}",
+            input.display()
+        );
+    }
+    let total = duration_secs(input)?;
+    if total < 5.0 {
+        bail!("the configured reference is {total:.1} s long, too short to use as a reference");
+    }
+    let out = dir.join("reference.wav");
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(["-v", "error", "-y", "-t"])
+        .arg(seconds.max(5).to_string())
+        .arg("-i")
+        .arg(input)
+        .args(["-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le"])
+        .arg(&out);
+    attach_output(&mut cmd);
+    let status = cmd
+        .status()
+        .with_context(|| format!("normalizing {}", input.display()))?;
+    if !status.success() {
+        bail!("ffmpeg failed while normalizing {}", input.display());
+    }
+    Ok(out)
+}
+
 /// Copies the reference to the GPU VM and returns the path the audio server
 /// should read. With an empty `SSH_HOST` the local file is used as is.
 pub fn push_reference(cfg: &crate::config::Config, local: &Path, slug: &str) -> Result<String> {

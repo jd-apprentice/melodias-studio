@@ -221,11 +221,22 @@ fn run(
     let source = step(tx, 3, || media::download_audio(url, &work))?;
     log(tx, format!("source: {}", source.display()));
 
-    let reference = step(tx, 4, || media::pick_reference(cfg, &source, &work))?;
+    let reference = step(tx, 4, || {
+        if cfg.audio_reference.as_os_str().is_empty() {
+            media::pick_reference(cfg, &source, &work)
+        } else {
+            media::prepare_reference(&cfg.audio_reference, &work, cfg.reference_sec)
+        }
+    })?;
+    let reference_origin = if cfg.audio_reference.as_os_str().is_empty() {
+        "source window"
+    } else {
+        "AUDIO_REFERENCE"
+    };
     log(
         tx,
         format!(
-            "reference: {} ({:.0} s)",
+            "reference ({reference_origin}): {} ({:.0} s)",
             reference.display(),
             media::duration_secs(&reference)?
         ),

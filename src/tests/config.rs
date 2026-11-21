@@ -22,6 +22,7 @@ fn reads_the_optional_fields() {
         video_particles = "sparks"
         video_project = "/tmp/video"
         pixabay_api_key = "test-key"
+        audio_reference = "/tmp/loop.wav"
     "#;
     let file: FileConfig = toml::from_str(text).unwrap();
     assert_eq!(file.ssh_host.as_deref(), Some("user@10.0.0.5"));
@@ -43,5 +44,6 @@ fn reads_the_optional_fields() {
     assert_eq!(file.video_particles.as_deref(), Some("sparks"));
     assert_eq!(file.video_project, Some(PathBuf::from("/tmp/video")));
     assert_eq!(file.pixabay_api_key.as_deref(), Some("test-key"));
+    assert_eq!(file.audio_reference, Some(PathBuf::from("/tmp/loop.wav")));
     assert_eq!(file.steps, None);
 }

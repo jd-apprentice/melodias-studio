@@ -30,6 +30,9 @@
 
 # --- Content ---------------------------------------------------------------
 # audio_style = "8-bit chiptune"
+# Optional reference for ACE-Step: a ChipForge render, a Wario Synth export
+# or a MIDI-driven chip bounce. Replaces a window of the source video.
+# audio_reference = "/path/to/loop.wav"
 # image_style = "8-bit pixel art"
 # image_negative_prompt = "glowing eyes, neon eyes, empty eyes, oversaturated eyes, text, watermark, signature"
 # gpu_label = "local models"

@@ -57,6 +57,7 @@ cp config.example.toml ~/.config/melodias-studio/config.toml
 | `AUDIO_DRAFT_STEPS` | `16` | steps for the audio drafts |
 | `AUDIO_DRAFT_SAMPLER` | `euler` | sampler for the audio drafts |
 | `REFERENCE_SEC` | `60` | length of the timbre reference, clamped to 5..120 |
+| `AUDIO_REFERENCE` | empty | WAV used as the ACE-Step reference instead of a window of the source video |
 | `FADE_IN_SEC` | `1.5` | master fade-in |
 | `FADE_OUT_SEC` | `3.0` | master fade-out |
 | `LOUDNESS_LUFS` | `-15` | master loudness target |
@@ -85,6 +86,8 @@ Go includes $30 of Argon usage per month ($120 on Go Plus), so the default 3 + 3
 A run costs about $0.03 of the allowance for 20 to 30 s of judge time, next to roughly 36 minutes of GPU work.
 
 The channel medium is a hard rule: the audio prompt always gets `AUDIO_STYLE`, even when the vibe does not mention it, and the image system message always pins `IMAGE_STYLE`. The vibe adds mood and references, not the medium.
+
+`AUDIO_REFERENCE` replaces the window taken from the source video as the ACE-Step reference. Point it at a WAV you already have, for example a ChipForge render, a Wario Synth export or a MIDI-driven chip bounce. The file is normalized to 48 kHz stereo PCM and cut to `REFERENCE_SEC`, then pushed to the GPU host like the normal reference. The rest of the pipeline is unchanged, so the score and the retry rounds still apply.
 
 An empty environment variable is ignored, so to run locally use `ssh_host = ""` in `config.toml` instead of `SSH_HOST=`.
 

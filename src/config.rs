@@ -80,6 +80,8 @@ pub struct Config {
     pub audio_draft_steps: u32,
     pub audio_draft_sampler: String,
     pub reference_sec: u32,
+    /// Optional WAV used instead of a window of the source video.
+    pub audio_reference: PathBuf,
     pub fade_in_sec: f64,
     pub fade_out_sec: f64,
     pub loudness_lufs: f64,
@@ -222,6 +224,10 @@ impl Config {
                 "euler",
             ),
             reference_sec: pick_parsed(env("REFERENCE_SEC"), file.reference_sec, 60),
+            audio_reference: env("AUDIO_REFERENCE")
+                .map(PathBuf::from)
+                .or(file.audio_reference)
+                .unwrap_or_default(),
             fade_in_sec: pick_parsed(env("FADE_IN_SEC"), file.fade_in_sec, 1.5),
             fade_out_sec: pick_parsed(env("FADE_OUT_SEC"), file.fade_out_sec, 3.0),
             loudness_lufs: pick_parsed(env("LOUDNESS_LUFS"), file.loudness_lufs, -15.0),
@@ -329,6 +335,7 @@ struct FileConfig {
     audio_draft_steps: Option<u32>,
     audio_draft_sampler: Option<String>,
     reference_sec: Option<u32>,
+    audio_reference: Option<PathBuf>,
     fade_in_sec: Option<f64>,
     fade_out_sec: Option<f64>,
     loudness_lufs: Option<f64>,
