@@ -23,7 +23,7 @@ use crossterm::style::Stylize;
 
 use pipeline::{Msg, State};
 
-const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias image <dir>      (regenerate the thumbnail of a run)\n       melodias judge <dir>      (review a finished run with the judge)\n       melodias score <dir>      (score a finished run, no GPU)\n       melodias history [view]   (runs, findings or trend, from the local database)\n       melodias dashboard        (local read-only charts over the database)\n       melodias render <dir>     (produced video with Remotion)\n       melodias video <dir>      (fast video with ffmpeg)\n       melodias refs fetch       (fill the reference library from a source)\n       melodias refs import      (import files or packs into the library)";
+const USAGE: &str = "usage: melodias                 (TUI)\n       melodias <url> <vibe>     (headless)\n       melodias image <dir>      (regenerate the thumbnail of a run)\n       melodias judge <dir>      (review a finished run with the judge)\n       melodias score <dir>      (score a finished run, no GPU)\n       melodias history [view]   (runs, findings or trend, from the local database)\n       melodias dashboard        (local read-only charts over the database)\n       melodias render <dir>     (produced video with Remotion)\n       melodias video <dir>      (fast video with ffmpeg)\n       melodias refs fetch       (fill the reference library from a source)\n       melodias refs import      (import files or packs into the library)\n       melodias refs generate    (generate reference images with sd-server)";
 
 fn main() -> io::Result<()> {
     let cfg = config::Config::from_env();

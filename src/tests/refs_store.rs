@@ -53,6 +53,27 @@ fn entries_omit_empty_fields() {
 }
 
 #[test]
+fn a_deleted_file_frees_its_hash() {
+    let root = scratch("store-delete");
+    let bytes = b"deleted by hand";
+    let hash = util::sha256_bytes(bytes);
+    {
+        let mut library = Library::open(root.clone()).unwrap();
+        let Stored::Added(path) = library.write(request(&hash, bytes, "cave")).unwrap() else {
+            panic!("the first write should add a file");
+        };
+        fs::remove_file(path).unwrap();
+    }
+    let mut library = Library::open(root.clone()).unwrap();
+    assert!(!library.contains(&hash));
+    assert!(matches!(
+        library.write(request(&hash, bytes, "cave")).unwrap(),
+        Stored::Added(_)
+    ));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn short_hashes_are_refused() {
     let root = scratch("store-short");
     let mut library = Library::open(root.clone()).unwrap();

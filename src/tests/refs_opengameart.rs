@@ -80,6 +80,14 @@ fn maps_a_preview_to_its_original_when_present() {
 }
 
 #[test]
+fn requires_the_query_word_in_the_title_or_slug() {
+    assert!(relevant("SunnyLand Forest", "sunnyland-forest", "forest"));
+    assert!(relevant("RPG Icons", "rpg-icons", "rpg icons"));
+    assert!(!relevant("PixVoxel Wargame", "pixvoxel-wargame", "volcano"));
+    assert!(relevant("Anything", "anything", "ab"));
+}
+
+#[test]
 fn rejects_non_cc0_licenses() {
     assert!(!is_cc0(&["CC-BY 3.0".to_string()]));
     assert!(!is_cc0(&[]));

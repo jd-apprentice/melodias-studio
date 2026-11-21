@@ -100,8 +100,13 @@ impl Library {
             for line in text.lines().filter(|line| !line.trim().is_empty()) {
                 if let Ok(value) = serde_json::from_str::<serde_json::Value>(line)
                     && let Some(hash) = value.get("sha256").and_then(|value| value.as_str())
+                    && let Some(file) = value.get("file").and_then(|value| value.as_str())
                 {
-                    hashes.insert(hash.to_string());
+                    // A file deleted by hand frees its hash, so the same
+                    // content can be fetched again if you change your mind.
+                    if root.join(file).exists() {
+                        hashes.insert(hash.to_string());
+                    }
                 }
             }
         }

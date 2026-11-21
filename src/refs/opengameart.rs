@@ -17,7 +17,7 @@ use anyhow::{Context, Result};
 use reqwest::Url;
 
 use super::util::{self, HttpRequest, decode_entities, find_all, take_until};
-use super::{Candidate, Defaults, Kind, Source, defaults};
+use super::{Candidate, Defaults, Kind, Source, concepts_for, opengameart_query};
 
 const SEARCH_URL: &str = "https://opengameart.org/art-search-advanced";
 const BASE_URL: &str = "https://opengameart.org";
@@ -85,7 +85,7 @@ impl OpenGameArt {
         Ok(slugs)
     }
 
-    fn entry(&self, slug: &str) -> Result<Vec<Candidate>> {
+    fn entry(&self, slug: &str, query: &str) -> Result<Vec<Candidate>> {
         let page_url = format!("{BASE_URL}/content/{slug}");
         let body = self.text(&page_url)?;
         let names = licenses_in(&body);
@@ -101,6 +101,10 @@ impl OpenGameArt {
             return Ok(Vec::new());
         }
         let title = title_in(&body).unwrap_or_else(|| slug.replace('-', " "));
+        if !relevant(&title, slug, query) {
+            eprintln!("warning: {slug}: title does not match \"{query}\", skipped");
+            return Ok(Vec::new());
+        }
         let author = author_in(&body).unwrap_or_default();
         let files = files_in(&body);
         let images: Vec<&String> = files
@@ -154,22 +158,17 @@ impl Source for OpenGameArt {
     }
 
     fn defaults(&self) -> Defaults {
-        defaults(&[
-            ("battle", "knight"),
-            ("forest", "forest"),
-            ("castle", "castle"),
-            ("jrpg", "rpg icons"),
-        ])
+        concepts_for(opengameart_query)
     }
 
-    fn candidates(&self, query: &str, count: usize) -> Result<Vec<Candidate>> {
+    fn candidates(&self, _concept: &str, query: &str, count: usize) -> Result<Vec<Candidate>> {
         let wanted = count.clamp(4, 48);
         let mut out = Vec::new();
         for slug in self.search(query, wanted)? {
             if out.len() >= count {
                 break;
             }
-            match self.entry(&slug) {
+            match self.entry(&slug, query) {
                 Ok(mut found) => out.append(&mut found),
                 Err(error) => eprintln!("warning: {slug}: {error}"),
             }
@@ -178,6 +177,18 @@ impl Source for OpenGameArt {
         out.truncate(count);
         Ok(out)
     }
+}
+
+/// OpenGameArt search matches the description too, so a page can rank high
+/// without being about the query. The first query word has to appear in the
+/// title or the slug; very short words are ignored.
+fn relevant(title: &str, slug: &str, query: &str) -> bool {
+    let needle = query.split_whitespace().next().unwrap_or("");
+    if needle.chars().count() < 3 {
+        return true;
+    }
+    let needle = needle.to_ascii_lowercase();
+    title.to_ascii_lowercase().contains(&needle) || slug.to_ascii_lowercase().contains(&needle)
 }
 
 fn slugs_in(html: &str) -> Vec<String> {

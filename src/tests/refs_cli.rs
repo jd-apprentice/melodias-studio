@@ -47,6 +47,22 @@ fn rejects_bad_fetch_arguments() {
 }
 
 #[test]
+fn parses_generate_flags() {
+    let parsed = parse_generate(&args(&[
+        "--concept",
+        "volcano",
+        "--count",
+        "2",
+        "--dry-run",
+    ]))
+    .unwrap();
+    assert_eq!(parsed.concepts, vec!["volcano"]);
+    assert_eq!(parsed.count, 2);
+    assert!(parsed.dry_run);
+    assert_eq!(generate::Options::default().count, 3);
+}
+
+#[test]
 fn parses_import_sources_in_order() {
     let parsed = parse_import(&args(&[
         "--concept",

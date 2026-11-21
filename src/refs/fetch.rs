@@ -327,7 +327,7 @@ pub fn run(cfg: &Config, options: Options) -> Result<()> {
             options.count
         );
         let margin = options.count + options.count / 2 + 5;
-        let candidates = source.candidates(&query, margin)?;
+        let candidates = source.candidates(concept, &query, margin)?;
         let mut counter = Counter::default();
         for candidate in candidates {
             if counter.reached(options.count) {

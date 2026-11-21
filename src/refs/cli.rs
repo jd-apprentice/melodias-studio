@@ -5,12 +5,13 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
-use super::{fetch, import};
+use super::{fetch, generate, import};
 use crate::config::Config;
 
 pub const USAGE: &str = "usage: melodias refs fetch [--source NAME] [--concept NAME] [--query TEXT]
                            [--count N] [--out DIR] [--tag TEXT] [--dry-run]
        melodias refs import --concept NAME --license TEXT [options] SOURCE...
+       melodias refs generate [--concept NAME] [--count N] [--out DIR] [--dry-run]
 
 fetch options:
   --source NAME           pixabay or opengameart (default pixabay)
@@ -39,7 +40,15 @@ import options:
   --prefix NAME           file prefix (default import)
   --dry-run               list what would be imported, write nothing
 
-SOURCE can be an image, a folder (searched recursively) or a .zip pack.";
+SOURCE can be an image, a folder (searched recursively) or a .zip pack.
+
+generate options:
+  --concept NAME          concept to fill, repeatable; default all of them
+  --count N               images per concept (default 3, capped at 50)
+  --out DIR               library root
+  --dry-run               print the prompts and seeds, generate nothing
+
+generate needs sd-server up, the same one the pipeline uses.";
 
 pub fn run(cfg: &Config, args: &[String]) -> Result<()> {
     if args.iter().any(|arg| arg == "-h" || arg == "--help") {
@@ -49,6 +58,7 @@ pub fn run(cfg: &Config, args: &[String]) -> Result<()> {
     match args.first().map(String::as_str) {
         Some("fetch") => fetch::run(cfg, parse_fetch(&args[1..])?),
         Some("import") => import::run(cfg, parse_import(&args[1..])?),
+        Some("generate") => generate::run(cfg, parse_generate(&args[1..])?),
         Some(other) => bail!("unknown refs command: {other}\n{USAGE}"),
         None => {
             println!("{USAGE}");
@@ -128,6 +138,25 @@ fn parse_import(args: &[String]) -> Result<import::Options> {
             "--dry-run" => options.dry_run = true,
             other if other.starts_with('-') => bail!("unknown option: {other}"),
             other => options.sources.push(PathBuf::from(other)),
+        }
+        index += 1;
+    }
+    Ok(options)
+}
+
+fn parse_generate(args: &[String]) -> Result<generate::Options> {
+    let mut options = generate::Options::default();
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--concept" => options
+                .concepts
+                .push(next_value(args, &mut index, "--concept")?),
+            "--count" => options.count = number(args, &mut index, "--count")?,
+            "--out" => options.out = Some(PathBuf::from(next_value(args, &mut index, "--out")?)),
+            "--dry-run" => options.dry_run = true,
+            other if other.starts_with('-') => bail!("unknown option: {other}"),
+            other => bail!("unexpected argument: {other}"),
         }
         index += 1;
     }

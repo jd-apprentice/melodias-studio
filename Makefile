@@ -24,6 +24,7 @@ help:
   '  make dashboard                       serve the read-only dashboard on 127.0.0.1' \
   '  make backfill [ARGS=--replace]       score the runs in output/ into the history DB' \
   '  make refs ARGS="fetch --source opengameart --concept castle"  fill the reference library' \
+  '  make refs ARGS="generate --concept volcano --count 5"  generate references with sd-server' \
   '  make refs ARGS="import --concept castle --license CC0-1.0 pack.zip"  import packs' \
 	  '  make render DIR=output/<slug>        produced video with Remotion' \
 	  '  make video DIR=output/<slug>         fast video with ffmpeg' \

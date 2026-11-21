@@ -118,7 +118,7 @@ melodias refs fetch --source opengameart --concept castle --count 20
 melodias refs fetch --source opengameart --concept battle --count 5 --dry-run
 ```
 
-The defaults come from the source: `battle`, `forest`, `castle` and `jrpg`, each with a query. `--concept` and `--query` override them (a custom `--query` needs exactly one `--concept`). `--out` falls back to `IMAGE_REFERENCES`, then `image_references` in `config.toml`, then `~/.local/share/melodias-studio/references`. `make refs ARGS="fetch ..."` wraps the command.
+The defaults come from the source: 18 concept folders (`battle`, `forest`, `castle`, `jrpg`, `boss`, `dungeon`, `cave`, `village`, `desert`, `snow`, `volcano`, `space`, `sky`, `underwater`, `swamp`, `graveyard`, `temple`, `city`), each with a query. The list and the per-source queries live in `src/refs/mod.rs`; adding a folder is one line there. `--concept` and `--query` override them (a custom `--query` needs exactly one `--concept`). `--out` falls back to `IMAGE_REFERENCES`, then `image_references` in `config.toml`, then `~/.local/share/melodias-studio/references`. `make refs ARGS="fetch ..."` wraps the command.
 
 Common options: `--count N` files per concept (40), `--max-files-per-pack N` files taken from one zip (60), `--max-bytes N` for a single image (6000000), `--max-pack-bytes N` for a zip (40000000), `--size N` for images inside a zip (768), `--delay S` between downloads (0.2), `--tag TEXT` to keep only candidates whose tags contain TEXT (repeatable), `--packs` to also import the zip behind an entry, and `--dry-run`.
 
@@ -133,7 +133,17 @@ $EDITOR ~/.config/melodias-studio/pixabay.key
 
 Its images are the 640 px rendition and it skips hits narrower than 400 px. `--tag pixel` drops some stock photos but is not a quality filter. Pixabay is a stock site, so expect single objects and UI icons next to scenes, and check for recognizable characters or brands before using a hit.
 
-OpenGameArt searches only CC0 entries (license id 4, 2D art) and checks the license again on every art page. It sends a browser user agent and waits between pages. Each entry offers one representative image, the original attachment when the preview points to one, otherwise the preview itself. Entries that are not CC0 are skipped and reported on stderr. With `--packs`, the zip behind an entry is imported too, normalized to PNG and capped.
+OpenGameArt searches only CC0 entries (license id 4, 2D art) and checks the license again on every art page. It sends a browser user agent and waits between pages. The first word of the query has to appear in the entry title or slug, because the search also matches descriptions and otherwise returns unrelated packs. Each entry offers one representative image, the original attachment when the preview points to one, otherwise the preview itself. Entries that are not CC0 are skipped and reported on stderr. With `--packs`, the zip behind an entry is imported too, normalized to PNG and capped.
+
+`melodias refs generate` creates the references with the local sd-server instead of downloading them. They are yours, so no third-party license is involved, and they match the channel style:
+
+```bash
+melodias refs generate --concept volcano --count 5
+melodias refs generate --concept boss --count 3 --out /tmp/refs
+melodias refs generate --dry-run --concept city
+```
+
+It needs sd-server up, the same one the pipeline uses. Each concept has a scene prompt in `src/refs/generate.rs` and gets `IMAGE_STYLE` appended. Images are normalized to 768 px and recorded with `license: "generated"` and `author: "melodias-studio"`. `IMAGE_SEED` makes a batch reproducible; `--count` defaults to 3 and is capped at 50 per concept.
 
 `melodias refs import` imports what you downloaded by hand, including `.zip` packs:
 

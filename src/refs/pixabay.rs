@@ -18,7 +18,7 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 
 use super::util::{HttpRequest, http_get};
-use super::{Candidate, Defaults, Source, defaults};
+use super::{Candidate, Defaults, Source, concepts_for, pixabay_query};
 use crate::config::Config;
 
 const MIN_WIDTH: u32 = 400;
@@ -99,15 +99,10 @@ impl Source for Pixabay {
     }
 
     fn defaults(&self) -> Defaults {
-        defaults(&[
-            ("battle", "pixel art knight"),
-            ("forest", "pixel art forest background"),
-            ("castle", "pixel art castle"),
-            ("jrpg", "pixel art game"),
-        ])
+        concepts_for(pixabay_query)
     }
 
-    fn candidates(&self, query: &str, count: usize) -> Result<Vec<Candidate>> {
+    fn candidates(&self, _concept: &str, query: &str, count: usize) -> Result<Vec<Candidate>> {
         let mut out = Vec::new();
         for page in 1..=MAX_PAGES {
             if out.len() >= count {
