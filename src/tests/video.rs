@@ -17,3 +17,13 @@ fn requires_the_overlays_of_the_selected_particles() {
     assert!(!required_overlays("sparks").contains(&"particles-bokeh.mp4"));
     assert_eq!(required_overlays("both").len(), 3);
 }
+
+#[test]
+fn resolves_a_relative_render_output_against_the_caller() {
+    let abs = std::path::Path::new("/tmp/run/work/video-remotion.mp4");
+    assert_eq!(absolute(abs).unwrap(), abs);
+    let relative = std::path::Path::new("output/anime/work/video-remotion.mp4");
+    let resolved = absolute(relative).unwrap();
+    assert!(resolved.is_absolute());
+    assert!(resolved.ends_with(relative));
+}

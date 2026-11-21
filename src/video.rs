@@ -59,7 +59,13 @@ pub fn render(
         let _ = std::fs::remove_file(&temp);
         return Err(error);
     }
-    std::fs::rename(&temp, &output).context("moving the Remotion video")?;
+    std::fs::rename(&temp, &output).with_context(|| {
+        format!(
+            "moving the Remotion video from {} to {}",
+            temp.display(),
+            output.display()
+        )
+    })?;
     Ok(Rendered {
         file: output,
         renderer: "remotion",
@@ -76,6 +82,12 @@ pub fn render_remotion(
     output: &Path,
     log: &mut dyn FnMut(&str),
 ) -> Result<()> {
+    // Remotion runs with the project as its working directory, so a relative
+    // output path would land inside the project instead of the run directory.
+    let output = absolute(output)?;
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let particles = particles_value(&cfg.video_particles)?;
     check_remotion(cfg, particles)?;
     let project = project_dir(cfg);
@@ -180,6 +192,17 @@ fn project_dir(cfg: &Config) -> PathBuf {
             .unwrap_or_else(|_| PathBuf::from("."))
             .join(&cfg.video_project)
     }
+}
+
+/// Resolves a path against the working directory without requiring the file to
+/// exist, so relative run directories keep working next to the Remotion project.
+fn absolute(path: &Path) -> Result<PathBuf> {
+    if path.is_absolute() {
+        return Ok(path.to_path_buf());
+    }
+    Ok(std::env::current_dir()
+        .context("resolving the working directory")?
+        .join(path))
 }
 
 fn pnpm_available() -> bool {
